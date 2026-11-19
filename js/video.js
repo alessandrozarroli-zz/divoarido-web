@@ -63,6 +63,7 @@ export class Video {
         else if (err && err.code === 2) t = 'Errore di rete durante la lettura del video dal Drive.';
         this.messaggio(p, t);
         this.stato(p, 'Error');
+        this.diagnosi(p, v.getAttribute('src'), t);
       });
       v.addEventListener('timeupdate', () => {
         if (p.stop != null && v.currentTime >= p.stop) { p.stop = null; v.pause(); }
@@ -73,6 +74,24 @@ export class Video {
     }
     host.classList.add('tk-video-host');
     host.append(p.box);
+  }
+
+  // Quando un video non parte dice il PERCHÉ (altrimenti il programma passa alla clip dopo e sembra «tutto nero»):
+  // si rilegge il primo byte dallo stesso indirizzo e si interpreta la risposta del componente di lettura (service worker).
+  async diagnosi(p, src, base) {
+    if (!src || !/__drive__\//.test(src)) return;
+    let causa;
+    try {
+      const r = await fetch(src, { headers: { Range: 'bytes=0-0' } });
+      const t = r.ok ? '' : await r.text().catch(() => '');
+      if (r.ok) causa = 'il file si legge da Drive ma il browser non riesce a riprodurlo (formato o file danneggiato).';
+      else if (r.status === 404 && /Video non accessibile/.test(t)) causa = 'Drive non lascia leggere il file: accesso Google scaduto (premi «Rinnova accesso Google» in alto) oppure il file non è condiviso con questo account.';
+      else if (r.status === 404) causa = 'il lettore dei video non è attivo su questa pagina: ricarica con Ctrl+F5.';
+      else if (r.status === 401 || r.status === 403) causa = `Drive rifiuta l'accesso (${r.status}): premi «Rinnova accesso Google» in alto e riprova.`;
+      else causa = `Drive risponde con errore ${r.status}.`;
+    } catch (e) { causa = 'impossibile contattare il lettore dei video (' + ((e && e.message) || e) + ').'; }
+    console.warn('Video non riproducibile:', src, causa);
+    if (p.video && p.video.getAttribute('src') === src) this.messaggio(p, (base ? base + ' ' : '') + 'Motivo: ' + causa);
   }
 
   // Punteggio in sovrimpressione (stile TV), in alto a sinistra sull'immagine del video

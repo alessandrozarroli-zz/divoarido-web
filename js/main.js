@@ -381,6 +381,15 @@ async function ripristinaImpostazioni() {
   let imp = {};
   try { imp = testo ? JSON.parse(testo) : {}; } catch (e) { imp = {}; }
   const daMontare = [];
+  // se sono cambiate le cartelle predefinite (config.js: REV_CARTELLE_PREDEFINITE) si dimenticano, una sola volta, quelle ricordate
+  if (CFG.REV_CARTELLE_PREDEFINITE && !(drive && drive.pc) && !CFG.MODALITA_LOCALE) {
+    try {
+      if (localStorage.getItem('vps_predef') !== String(CFG.REV_CARTELLE_PREDEFINITE)) {
+        delete imp.cartella_dvw; delete imp.cartella_video;
+        localStorage.setItem('vps_predef', String(CFG.REV_CARTELLE_PREDEFINITE));
+      }
+    } catch (e) {}
+  }
   // le cartelle ricordate valgono solo per la modalità in uso (Drive o PC)
   const compat = (m) => !!(drive && drive.pc) === String(m.id).startsWith('P:');
   for (const k of ['cartella_dvw', 'cartella_video']) {

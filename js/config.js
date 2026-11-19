@@ -16,8 +16,13 @@ window.VPS_CONFIG = {
   // Sono le cartelle di Dvs_Video (area «Computer» del Drive). Partite (.dvw) e video stanno nella STESSA cartella,
   // una sottocartella per partita: si legge tutto con un solo passaggio. Chi accede deve avere la cartella condivisa
   // (tasto destro > Condividi, permesso Visualizzatore); altrimenti compare un messaggio e sceglie un'altra cartella con Sfoglia.
-  CARTELLA_DVW_PREDEFINITA: '1CIuHRvdIjTa1xhNcvOHwRD5KlwaVfNEU',
-  NOME_CARTELLA_DVW: 'Dvs_Video',
+  // Le PARTITE (.dvw) si leggono dalla cartella «Scout» (copia su Drive di «FIXED GAMES 26-27\Scout», quella del collegamento
+  // Fixed-Scout sul PC); i VIDEO da Dvs_Video. Un video senza una partita in Scout non compare da nessuna parte.
+  CARTELLA_DVW_PREDEFINITA: '1qTFFktJBODbzXcoVxxqZHYgAiEocLOwU',
+  NOME_CARTELLA_DVW: 'Scout',
+  // Da cambiare quando cambiano le cartelle predefinite: una volta sola, nel browser di ognuno, si dimenticano le cartelle
+  // ricordate (non gli abbinamenti partita↔video, che stanno sul Drive) e si propongono quelle nuove.
+  REV_CARTELLE_PREDEFINITE: '2',
   CARTELLA_VIDEO_PREDEFINITA: '1CIuHRvdIjTa1xhNcvOHwRD5KlwaVfNEU',
   NOME_CARTELLA_VIDEO: 'Dvs_Video',
 
@@ -33,5 +38,5 @@ window.VPS_CONFIG = {
   // Non modificare (versioni dei componenti)
   PYODIDE_URL: 'https://cdn.jsdelivr.net/pyodide/v0.28.2/full/',
   REPORTLAB_WHEEL: 'reportlab-5.0.1-py3-none-any.whl',
-  VERSIONE: '1.0.23-20261119-1035',
+  VERSIONE: '1.0.23-20261119-1058',
 };

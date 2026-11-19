@@ -114,11 +114,32 @@ function mostraRinnovo() {
 // ------------------------------------------------------------------------------------------
 // service worker (streaming video)
 // ------------------------------------------------------------------------------------------
+// Dopo Ctrl+F5 (ricaricamento forzato) il browser carica la pagina SENZA il lettore dei video (service worker): i video non
+// partirebbero. Se all'avvio il lettore c'e' ma la pagina non e' sotto il suo controllo, si fa UN ricaricamento normale
+// (protetto contro i cicli: al massimo uno al minuto) che la riporta sotto controllo. All'avvio non c'e' ancora nulla da perdere.
+async function assicuraControlloSW() {
+  if (navigator.serviceWorker.controller) return;
+  // prima installazione: il lettore prende il controllo da solo, di solito entro pochi istanti
+  await new Promise((ok) => {
+    const t = setTimeout(ok, 1500);
+    navigator.serviceWorker.addEventListener('controllerchange', () => { clearTimeout(t); ok(); }, { once: true });
+  });
+  if (navigator.serviceWorker.controller) return;
+  const k = 'vps_sw_ricarica', ora = Date.now();
+  let ultimo = 0;
+  try { ultimo = Number(sessionStorage.getItem(k)) || 0; } catch (e) { return; }
+  if (ora - ultimo < 60000) return;
+  try { sessionStorage.setItem(k, String(ora)); } catch (e) { return; }
+  location.reload();
+  await new Promise(() => {});      // la pagina sta per essere ricaricata: si ferma qui l'avvio
+}
+
 async function registraServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   try {
     await navigator.serviceWorker.register('sw.js');
     await navigator.serviceWorker.ready;
+    await assicuraControlloSW();
     navigator.serviceWorker.addEventListener('message', async (e) => {
       if (e.data && e.data.tipo === 'serve-token') {
         let t = null;

@@ -86,7 +86,7 @@ export class Video {
       const t = r.ok ? '' : await r.text().catch(() => '');
       if (r.ok) causa = 'il file si legge da Drive ma il browser non riesce a riprodurlo (formato o file danneggiato).';
       else if (r.status === 404 && /Video non accessibile/.test(t)) causa = 'Drive non lascia leggere il file: accesso Google scaduto (premi «Rinnova accesso Google» in alto) oppure il file non è condiviso con questo account.';
-      else if (r.status === 404) causa = 'il lettore dei video non è attivo su questa pagina: ricarica con Ctrl+F5.';
+      else if (r.status === 404) causa = 'il lettore dei video non è attivo su questa pagina (succede dopo Ctrl+F5, che lo esclude): ricarica con un normale F5, oppure chiudi la scheda e riaprila.';
       else if (r.status === 401 || r.status === 403) causa = `Drive rifiuta l'accesso (${r.status}): premi «Rinnova accesso Google» in alto e riprova.`;
       else causa = `Drive risponde con errore ${r.status}.`;
     } catch (e) { causa = 'impossibile contattare il lettore dei video (' + ((e && e.message) || e) + ').'; }

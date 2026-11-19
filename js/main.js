@@ -271,12 +271,13 @@ function percorsoPer(item, kind) {
 
 async function dialogoCartella(opts) {
   const perVideo = /video/i.test(opts.title || '');
+  const allen = /allenament|sedut/i.test(opts.title || '');          // sezione Allenamenti (il programma lo scrive nel titolo)
   const c = drive.pc
     ? await sceltaPC(drive, { titolo: opts.title || 'Scegli una cartella', tipo: perVideo ? 'video' : 'dvw' })
     : await sceltaDrive(drive, { titolo: (opts.title || 'Scegli una cartella') + DOVE() });
   if (!c) return '';
   try {
-    const p = perVideo ? await montaVideo(c) : await montaDvw(c);
+    const p = perVideo ? await montaVideo(c, false, allen) : await montaDvw(c, false, allen);
     await iniettaAssociazioni();
     return p;
   } catch (e) {
@@ -364,13 +365,23 @@ async function scaricaConCache(f) {
   return new Uint8Array(buf);
 }
 
-async function montaDvw(cartella, silenzioso) {
+// Nomi dei file .dvw copiati nella sezione Allenamenti (servono a distinguere i loro abbinamenti video da quelli delle gare).
+const NOMI_ALLEN = new Set();
+// Nella sezione Allenamenti i file di dati (flag, traiettorie) stanno nella stessa cartella dati delle gare ma con questo prefisso:
+// stesso nome = si sovrascriverebbero a vicenda.
+const PREF_DATI_ALLEN = 'Allenamenti_';
+
+async function montaDvw(cartella, silenzioso, allen) {
   const path = percorsoPer(cartella, 'dvw');
-  if (!silenzioso) avvisoLungo(`Copio le partite da “${cartella.name}”…`);
+  if (!silenzioso) avvisoLungo(`Copio ${allen ? 'le sedute' : 'le partite'} da “${cartella.name}”…`);
   try {
     const figli = await drive.figli(cartella.id);        // i dati (flag, traiettorie, associazioni) stanno nella cartella scelta
-    // le partite si cercano nella cartella e nelle sue sottocartelle (anche una cartella per partita)
-    const { partite: dvw, doppi, allenamenti } = filtraPartite(await drive.dvwRicorsivi(cartella.id), { includiAllenamenti: !!CFG.INCLUDI_ALLENAMENTI });
+    // le partite si cercano nella cartella e nelle sue sottocartelle (anche una cartella per partita);
+    // le sedute di allenamento: solo i file con @ nel nome (corretti e associati al video), come nel programma per Windows
+    let elencoDvw = await drive.dvwRicorsivi(cartella.id);
+    if (allen) elencoDvw = elencoDvw.filter((f) => f.name.includes('@'));
+    const { partite: dvw, doppi, allenamenti } = filtraPartite(elencoDvw, { includiAllenamenti: !!allen || !!CFG.INCLUDI_ALLENAMENTI });
+    if (allen) for (const f of dvw) NOMI_ALLEN.add(f.name);
     if (doppi.length) console.warn('Partite con lo stesso nome in più sottocartelle, ignorate:', doppi);
     const note = [];
     if (allenamenti.length) note.push(`${allenamenti.length} sedute di allenamento non incluse (nel web non c'è ancora la sezione Allenamenti)`);
@@ -391,22 +402,25 @@ async function montaDvw(cartella, silenzioso) {
       try { figliDati = await drive.figli(idDati); }
       catch (e) { console.warn('cartella dei dati non letta', e); figliDati = []; if (!silenzioso) avviso('Non riesco a leggere la cartella dei dati del programma (flag e abbinamenti): ' + messaggioCartella(e, 'dei dati')); }
     }
-    for (const f of figliDati.filter((x) => DATI_CARTELLA.test(x.name) && !/backup/i.test(x.name))) {
+    const rxDati = allen ? new RegExp('^' + PREF_DATI_ALLEN + '(VolleyProSuite_[^/]*\\.json)$', 'i') : DATI_CARTELLA;
+    for (const f of figliDati.filter((x) => rxDati.test(x.name) && !/backup/i.test(x.name))) {
+      const locale = allen ? f.name.slice(PREF_DATI_ALLEN.length) : f.name;
       try {
-        await motore.scriviFile(path + '/' + f.name, new Uint8Array(await drive.scarica(f.id)));
-        FILE_DATI.set(path + '/' + f.name, { cartellaId: idDati, nome: f.name, id: f.id });
+        await motore.scriviFile(path + '/' + locale, new Uint8Array(await drive.scarica(f.id)));
+        FILE_DATI.set(path + '/' + locale, { cartellaId: idDati, nome: f.name, id: f.id });
       } catch (e) { console.warn('dati non letti', f.name, e); }
     }
     try { await leggiImpostazioniDrive(figliDati, idDati); } catch (e) { console.warn('impostazioni del Drive non lette', e); }
     await motore.chiama('dati_base');
     MONTAGGI[path] = { id: cartella.id, name: cartella.name, kind: 'dvw' };
+    if (allen) MONTAGGI[path].sez = 'allen';
     salvaJson('vps_montaggi', MONTAGGI);
-    await leggiAssociazioniCondivise(cartella, path, figliDati);
+    await leggiAssociazioniCondivise(cartella, path, figliDati, allen);
     return path;
   } finally { if (!silenzioso) avvisoLungo(null); }
 }
 
-async function montaVideo(cartella, silenzioso) {
+async function montaVideo(cartella, silenzioso, allen) {
   const path = percorsoPer(cartella, 'video');
   if (!silenzioso) avvisoLungo(`Leggo l'elenco dei video in “${cartella.name}”…`);
   try {
@@ -420,6 +434,7 @@ async function montaVideo(cartella, silenzioso) {
     await motore.chiama('fs_svuota', path);
     await motore.chiama('fs_segnaposto', JSON.stringify(lista));
     MONTAGGI[path] = { id: cartella.id, name: cartella.name, kind: 'video' };
+    if (allen) MONTAGGI[path].sez = 'allen';
     salvaJson('vps_montaggi', MONTAGGI);
     return path;
   } finally { if (!silenzioso) avvisoLungo(null); }
@@ -436,28 +451,36 @@ async function ripristinaImpostazioni() {
   if (CFG.REV_CARTELLE_PREDEFINITE && !(drive && drive.pc) && !CFG.MODALITA_LOCALE) {
     try {
       if (localStorage.getItem('vps_predef') !== String(CFG.REV_CARTELLE_PREDEFINITE)) {
-        delete imp.cartella_dvw; delete imp.cartella_video;
+        delete imp.cartella_dvw; delete imp.cartella_video; delete imp.allen_cartella_dvw; delete imp.allen_cartella_video;
         localStorage.setItem('vps_predef', String(CFG.REV_CARTELLE_PREDEFINITE));
       }
     } catch (e) {}
   }
   // le cartelle ricordate valgono solo per la modalità in uso (Drive o PC)
   const compat = (m) => !!(drive && drive.pc) === String(m.id).startsWith('P:');
-  for (const k of ['cartella_dvw', 'cartella_video']) {
+  // (le voci 'allen_…' sono quelle della sezione Allenamenti)
+  for (const k of ['cartella_dvw', 'cartella_video', 'allen_cartella_dvw', 'allen_cartella_video']) {
     const p = imp[k];
     if (p && MONTAGGI[p] && compat(MONTAGGI[p])) daMontare.push([p, MONTAGGI[p]]);
     else if (p && MONTAGGI[p]) delete imp[k];
   }
   // cartelle proposte al primo avvio (solo con il Google Drive vero: non hanno senso con le cartelle del PC)
-  const conDrive = !(drive && drive.pc) && !CFG.MODALITA_LOCALE;
+  const conDrive = !(drive && drive.pc) && (!CFG.MODALITA_LOCALE || !!CFG.PROVA_PREDEFINITE_LOCALI);
   if (conDrive && !imp.cartella_dvw && CFG.CARTELLA_DVW_PREDEFINITA) daMontare.push([null, { id: CFG.CARTELLA_DVW_PREDEFINITA, name: CFG.NOME_CARTELLA_DVW || 'Partite', kind: 'dvw' }]);
   if (conDrive && !imp.cartella_video && CFG.CARTELLA_VIDEO_PREDEFINITA) daMontare.push([null, { id: CFG.CARTELLA_VIDEO_PREDEFINITA, name: CFG.NOME_CARTELLA_VIDEO || 'Video', kind: 'video' }]);
+  if (conDrive && !imp.allen_cartella_dvw && CFG.CARTELLA_ALLEN_DVW_PREDEFINITA) daMontare.push([null, { id: CFG.CARTELLA_ALLEN_DVW_PREDEFINITA, name: CFG.NOME_CARTELLA_ALLEN_DVW || 'Allenamenti', kind: 'dvw', sez: 'allen' }]);
+  if (conDrive && !imp.allen_cartella_video && CFG.CARTELLA_ALLEN_VIDEO_PREDEFINITA) daMontare.push([null, { id: CFG.CARTELLA_ALLEN_VIDEO_PREDEFINITA, name: CFG.NOME_CARTELLA_ALLEN_VIDEO || 'Allenamenti - video', kind: 'video', sez: 'allen' }]);
   for (const [p, m] of daMontare) {
+    const allen = m.sez === 'allen';
     try {
-      stato(m.kind === 'video' ? `Leggo l'elenco dei video (${m.name})…` : `Copio le partite (${m.name})…`);
-      const nuovo = m.kind === 'video' ? await montaVideo({ id: m.id, name: m.name }, true) : await montaDvw({ id: m.id, name: m.name }, true);
-      if (!p) imp[m.kind === 'video' ? 'cartella_video' : 'cartella_dvw'] = nuovo;
-    } catch (e) { console.warn('cartella non più disponibile', m, e); avviso(messaggioCartella(e, m.name)); }
+      stato(m.kind === 'video' ? `Leggo l'elenco dei video (${m.name})…` : `Copio ${allen ? 'le sedute' : 'le partite'} (${m.name})…`);
+      const nuovo = m.kind === 'video' ? await montaVideo({ id: m.id, name: m.name }, true, allen) : await montaDvw({ id: m.id, name: m.name }, true, allen);
+      if (!p) imp[(allen ? 'allen_' : '') + (m.kind === 'video' ? 'cartella_video' : 'cartella_dvw')] = nuovo;
+    } catch (e) {
+      console.warn('cartella non più disponibile', m, e);
+      // la cartella degli allenamenti proposta in automatico, se non è condivisa con questo account, semplicemente non compare (niente avviso)
+      if (!(allen && !p && /404|403|not found|non trovat|forbidden|permission|insufficient/i.test(String((e && e.message) || e)))) avviso(messaggioCartella(e, m.name));
+    }
   }
   // video scelti a mano in passato
   const singoli = Object.entries(MONTAGGI).filter(([, m]) => m.kind === 'file' && compat(m));
@@ -481,13 +504,15 @@ async function ripristinaImpostazioni() {
 // Ogni utente salva i propri abbinamenti in "volleyprosuite_video (email).json" nella cartella
 // delle partite; leggendo si uniscono quelli di tutti (il proprio file ha la precedenza).
 const PREF_ASSOC = 'volleyprosuite_video';
+const PREF_ASSOC_ALLEN = 'volleyprosuite_allen_video';       // sezione Allenamenti: file proprio (stessa cartella dati, nome diverso)
 const ASSOC = { perCartella: {} };   // id cartella dvw -> {fileId (mio), map: {nome dvw: {id, name}}}
 
-function mioNomeAssoc() { return `${PREF_ASSOC} (${(drive.utente && drive.utente.emailAddress) || localStorage.getItem('vps_email') || 'utente'}).json`; }
+function mioNomeAssoc(allen) { return `${allen ? PREF_ASSOC_ALLEN : PREF_ASSOC} (${(drive.utente && drive.utente.emailAddress) || localStorage.getItem('vps_email') || 'utente'}).json`; }
 
-async function leggiAssociazioniCondivise(cartella, path, figli) {
-  const mio = mioNomeAssoc();
-  const files = figli.filter((x) => x.name.startsWith(PREF_ASSOC) && x.name.endsWith('.json'))
+async function leggiAssociazioniCondivise(cartella, path, figli, allen) {
+  const mio = mioNomeAssoc(allen);
+  const pref = (allen ? PREF_ASSOC_ALLEN : PREF_ASSOC) + ' (';
+  const files = figli.filter((x) => x.name.startsWith(pref) && x.name.endsWith('.json'))
     .sort((a, b) => (a.name === mio) - (b.name === mio) || String(a.modifiedTime).localeCompare(String(b.modifiedTime)));
   const map = {};
   let mioId = null;
@@ -606,27 +631,32 @@ async function salvaImpostazioniDrive(sel, f) {
   }
 }
 
-let salvataggioAssoc = null;
+const salvataggioAssoc = {};
+// Gli abbinamenti video (video_map: nome del .dvw -> video) delle gare vanno nel file delle gare, quelli delle sedute di
+// allenamento (nomi dei .dvw della sezione Allenamenti) nel file degli allenamenti.
 async function salvaAssociazioniCondivise(testo) {
   let imp; try { imp = JSON.parse(testo); } catch (e) { return; }
-  const dvwPath = imp.cartella_dvw;
-  const m = MONTAGGI[dvwPath];
-  if (!m || m.kind !== 'dvw') return;
-  const a = ASSOC.perCartella[m.id] || (ASSOC.perCartella[m.id] = { fileId: null, map: {} });
-  let cambiato = false;
-  for (const [nf, p] of Object.entries(imp.video_map || {})) {
-    const v = INDICE_VIDEO.get(p);
-    if (!v) continue;
-    if (!a.map[nf] || a.map[nf].id !== v.id) { a.map[nf] = { id: v.id, name: v.name }; cambiato = true; }
+  for (const allen of [false, true]) {
+    const m = MONTAGGI[imp[allen ? 'allen_cartella_dvw' : 'cartella_dvw']];
+    if (!m || m.kind !== 'dvw') continue;
+    const a = ASSOC.perCartella[m.id] || (ASSOC.perCartella[m.id] = { fileId: null, map: {} });
+    let cambiato = false;
+    for (const [nf, p] of Object.entries(imp.video_map || {})) {
+      if (NOMI_ALLEN.has(nf) !== allen) continue;
+      const v = INDICE_VIDEO.get(p);
+      if (!v) continue;
+      if (!a.map[nf] || a.map[nf].id !== v.id) { a.map[nf] = { id: v.id, name: v.name }; cambiato = true; }
+    }
+    if (!cambiato) continue;
+    const k = allen ? 'a' : 'g';
+    clearTimeout(salvataggioAssoc[k]);
+    salvataggioAssoc[k] = setTimeout(async () => {
+      try {
+        const id = await drive.caricaJson(cartellaDati(m), mioNomeAssoc(allen), { programma: 'Volley Pro Suite', aggiornato: new Date().toISOString(), video: a.map }, a.fileId);
+        if (id) a.fileId = id;
+      } catch (e) { console.warn('associazioni non salvate sul Drive', e); }
+    }, 1500);
   }
-  if (!cambiato) return;
-  clearTimeout(salvataggioAssoc);
-  salvataggioAssoc = setTimeout(async () => {
-    try {
-      const id = await drive.caricaJson(cartellaDati(m), mioNomeAssoc(), { programma: 'Volley Pro Suite', aggiornato: new Date().toISOString(), video: a.map }, a.fileId);
-      if (id) a.fileId = id;
-    } catch (e) { console.warn('associazioni non salvate sul Drive', e); }
-  }, 1500);
 }
 
 // ------------------------------------------------------------------------------------------
@@ -703,12 +733,13 @@ function salvaDato(path, testo) {
   if (!m || m.kind !== 'dvw') return;
   clearTimeout(ATTESA_SALVA.get(path));
   ATTESA_SALVA.set(path, setTimeout(async () => {
-    const info = FILE_DATI.get(path) || { cartellaId: cartellaDati(m), nome, id: null };
+    // sezione Allenamenti: stessa cartella dati delle gare, nome con prefisso (altrimenti i due file si sovrascriverebbero)
+    const info = FILE_DATI.get(path) || { cartellaId: cartellaDati(m), nome: (m.sez === 'allen' ? PREF_DATI_ALLEN : '') + nome, id: null };
     try {
-      const id = await drive.caricaFile(info.cartellaId, nome, testo, info.id);
+      const id = await drive.caricaFile(info.cartellaId, info.nome, testo, info.id);
       if (id) { info.id = id; FILE_DATI.set(path, info); }
-      else avviso('Attenzione: ' + nome + ' non salvato' + DOVE());
-    } catch (e) { avviso('Attenzione: ' + nome + ' non salvato' + DOVE()); console.warn(e); }
+      else avviso('Attenzione: ' + info.nome + ' non salvato' + DOVE());
+    } catch (e) { avviso('Attenzione: ' + info.nome + ' non salvato' + DOVE()); console.warn(e); }
   }, 700));
 }
 

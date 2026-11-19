@@ -31,6 +31,14 @@ window.VPS_CONFIG = {
   // questa cartella; per Dvs_Video basta la sola visualizzazione. Vuoto = i dati restano nella cartella delle partite.
   CARTELLA_DATI: '1uctZk79NcDcXxKyvh727Fgd9u4r6OIg7',          // «DivoArido / dati» sul Drive
 
+  // Sezione ALLENAMENTI (interruttore Gare/Allenamenti): i file .dvw delle sedute (solo quelli con @ nel nome) stanno in
+  // «DivoArido / Allenamenti» e i video in «DivoArido / Allenamenti / Video» (una sottocartella per seduta). Chi non ha la
+  // cartella condivisa non vede l'interruttore.
+  CARTELLA_ALLEN_DVW_PREDEFINITA: '1TKioSeOXz2Xap75iyWR6WJV9ck2bwP5d',
+  NOME_CARTELLA_ALLEN_DVW: 'Allenamenti',
+  CARTELLA_ALLEN_VIDEO_PREDEFINITA: '1nh70WdXAFKGWXk3UG5q9genQddlIFB16',
+  NOME_CARTELLA_ALLEN_VIDEO: 'Allenamenti - video',
+
   // false = le sedute di allenamento (cartelle o file con «allenam» nel nome) non entrano nell'elenco delle gare:
   // nel web non c'è ancora la sezione Allenamenti. Mettere true per includerle.
   INCLUDI_ALLENAMENTI: false,
@@ -38,5 +46,5 @@ window.VPS_CONFIG = {
   // Non modificare (versioni dei componenti)
   PYODIDE_URL: 'https://cdn.jsdelivr.net/pyodide/v0.28.2/full/',
   REPORTLAB_WHEEL: 'reportlab-5.0.1-py3-none-any.whl',
-  VERSIONE: '1.0.23-20261119-1952',
+  VERSIONE: '1.0.23-20261119-2245',
 };

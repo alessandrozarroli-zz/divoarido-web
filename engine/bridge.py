@@ -144,8 +144,15 @@ def _fire(w, seq, ev):
     return None
 
 
+_SU_WIDGET = ('command', 'event', 'listbox', 'combo', 'tree', 'menu', 'key', 'notebook', 'canvasitem', 'configure')
+
+
 def _esegui(a):
     tipo = a.get('a')
+    # Un clic/tasto su un elemento di una finestra chiusa o ricostruita nel frattempo (es. doppio clic mentre si chiude)
+    # non vale più: si ignora in silenzio invece di mostrare «widget … non più esistente».
+    if tipo in _SU_WIDGET and a.get('id') not in htk.WIDGETS:
+        return
     if tipo == 'command':
         w = _w(a['id'])
         c = w.kw.get('command')

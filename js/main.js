@@ -277,10 +277,20 @@ async function iniettaAssociazioni() {
   if (JSON.stringify(imp.video_map || {}) !== prima) await motore.chiama('fs_scrivi_testo', path, JSON.stringify(imp, null, 1));
 }
 
+// La finestra di scelta del video si apre già nella cartella dei video (es. Dvs_Video, che sfogliando da «Il mio Drive» non si
+// trova perché sta nell'area «Computer») e permette di cercare il video per nome in tutte le sue sottocartelle.
+function impostazioniScelta() {
+  if (CFG.MODALITA_LOCALE || (drive && drive.pc)) return {};
+  const e = Object.entries(MONTAGGI).find(([, m]) => m.kind === 'video' && !String(m.id).startsWith('P:'));
+  if (!e) return {};
+  const inizio = { id: e[1].id, name: e[1].name };
+  return { inizio, cercaVideo: () => drive.videoRicorsivi(inizio.id) };
+}
+
 async function dialogoFileVideo(opts) {
   const f = drive.pc
     ? await sceltaPC(drive, { titolo: opts.title || 'Scegli il video', file: true })
-    : await sceltaDrive(drive, { titolo: (opts.title || 'Scegli il video') + DOVE(), file: true, filtroFile: eVideo });
+    : await sceltaDrive(drive, Object.assign({ titolo: (opts.title || 'Scegli il video') + DOVE(), file: true, filtroFile: eVideo }, impostazioniScelta()));
   if (!f) return '';
   const p = percorsoPer(f, 'file').replace(/\/[^/]*$/, '/') + nomeSicuro(f.name);
   MONTAGGI[p] = { id: f.id, name: f.name, kind: 'file' };

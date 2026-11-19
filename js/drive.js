@@ -284,7 +284,10 @@ export function idDaLink(testo) {
 // ------------------------------------------------------------------------------------------
 // Finestra di scelta (cartella o file video) sul Drive
 // ------------------------------------------------------------------------------------------
-export function sceltaDrive(drive, { titolo = 'Scegli una cartella', file = false, filtroFile = eVideo } = {}) {
+// Opzioni utili per scegliere un video: «inizio» = cartella in cui si apre la finestra (es. quella dei video già letta,
+// Dvs_Video nell'area «Computer», che sfogliando da «Il mio Drive» non si raggiunge); «cercaVideo(testo)» = ricerca per
+// nome tra TUTTI i video di quella cartella e delle sue sottocartelle (restituisce file con name, rel, id, size, mimeType).
+export function sceltaDrive(drive, { titolo = 'Scegli una cartella', file = false, filtroFile = eVideo, inizio = null, cercaVideo = null } = {}) {
   return new Promise((risolvi) => {
     const fondo = document.createElement('div');
     fondo.className = 'dlg-fondo dlg-aperto';
@@ -353,6 +356,7 @@ export function sceltaDrive(drive, { titolo = 'Scegli una cartella', file = fals
       box.innerHTML = '<div class="drv-vuoto">Caricamento…</div>';
       const c = percorso[percorso.length - 1];
       if (c.id === '__cerca') return cerca();
+      if (c.id === '__cercav') return cercaNeiVideo();
       let el;
       try {
         if (c.id === '__shared') el = await drive.condivisiConMe();
@@ -426,6 +430,48 @@ export function sceltaDrive(drive, { titolo = 'Scegli una cartella', file = fals
       $('.drv-cerca-vai').onclick = cerca;
       $('.drv-cerca input').addEventListener('keydown', (e) => { if (e.key === 'Enter') cerca(); });
     }
+    // Scelta del video: si apre già nella cartella dei video e si può cercare il video per nome (anche in tutte le sottocartelle)
+    const radici = fondo.querySelector('.drv-radici');
+    const cercaNeiVideo = async () => {
+      const t = $('.drv-cercav input').value.trim();
+      if (!t) { $('.drv-stato').textContent = 'Scrivi una parte del nome del video (o della partita)'; return; }
+      percorso = [{ id: '__cercav', name: `Video trovati per “${t}”`, virtuale: true }];
+      disegnaPercorso(); aggiornaOk();
+      const box = $('.drv-elementi'); box.innerHTML = '<div class="drv-vuoto">Ricerca…</div>';
+      try {
+        const parole = t.toLowerCase().split(/\s+/).filter(Boolean);
+        const tutti = await cercaVideo(t);
+        if (percorso[percorso.length - 1].id !== '__cercav') return;
+        const trovati = tutti.filter((f) => { const n = (f.rel || f.name).toLowerCase(); return parole.every((w) => n.includes(w)); });
+        box.replaceChildren();
+        if (!trovati.length) { box.innerHTML = '<div class="drv-vuoto">Nessun video trovato con questo nome. Prova con una parte più corta (per esempio una sola squadra).</div>'; return; }
+        for (const f of trovati.slice(0, 80)) {
+          const r = document.createElement('button');
+          r.className = 'drv-el drv-file';
+          const kb = f.size ? ` · ${(f.size / 1048576).toFixed(f.size > 1048576 * 10 ? 0 : 1)} MB` : '';
+          r.textContent = '🎬 ' + f.name + kb;
+          const dove = document.createElement('span'); dove.className = 'drv-dove';
+          dove.textContent = f.rel && f.rel !== f.name ? '  in «' + f.rel.slice(0, f.rel.length - f.name.length - 1) + '»' : '';
+          r.append(dove);
+          r.onclick = () => { box.querySelectorAll('.drv-file').forEach((x) => x.classList.remove('sel')); r.classList.add('sel'); scelto = f; aggiornaOk(); };
+          r.ondblclick = () => { scelto = f; chiudi(f); };
+          box.append(r);
+        }
+        if (trovati.length > 80) { const i = document.createElement('div'); i.className = 'drv-info'; i.textContent = `Mostrati i primi 80 di ${trovati.length}: restringi la ricerca.`; box.prepend(i); }
+      } catch (e) { box.innerHTML = ''; const d = document.createElement('div'); d.className = 'drv-vuoto errore'; d.textContent = messaggioCartella(e, inizio && inizio.name); box.append(d); }
+    };
+    if (file && inizio && cercaVideo && !locale) {
+      const b = document.createElement('button');
+      b.dataset.r = 'inizio'; b.textContent = '🎬 ' + (inizio.name || 'Cartella dei video');
+      b.onclick = () => { percorso = [{ id: inizio.id, name: inizio.name }]; apri(); };
+      const cv = document.createElement('div'); cv.className = 'drv-cerca drv-cercav';
+      cv.innerHTML = '<label></label><input type="text" placeholder="es. BARKOM"><button class="drv-cercav-vai">Cerca</button>';
+      cv.querySelector('label').textContent = 'Cerca il video per nome (in «' + (inizio.name || 'video') + '», anche nelle sottocartelle)';
+      radici.prepend(cv);
+      radici.prepend(b);
+      cv.querySelector('.drv-cercav-vai').onclick = cercaNeiVideo;
+      cv.querySelector('input').addEventListener('keydown', (e) => { if (e.key === 'Enter') cercaNeiVideo(); });
+    }
     $('.drv-vai').onclick = async () => {
       const testoLink = $('.drv-link input').value.trim().replace(/^"|"$/g, '');
       const id = locale ? ('L' + btoa(unescape(encodeURIComponent(testoLink))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')) : idDaLink(testoLink);
@@ -435,7 +481,7 @@ export function sceltaDrive(drive, { titolo = 'Scegli una cartella', file = fals
     };
     $('.drv-link input').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('.drv-vai').click(); });
     const ultima = (() => { try { return JSON.parse(localStorage.getItem('vps_ultima_cartella') || 'null'); } catch (e) { return null; } })();
-    percorso = ultima && !file ? ultima : [{ id: 'root', name: locale ? 'Questo PC' : 'Il mio Drive' }];
+    percorso = file && inizio && !locale ? [{ id: inizio.id, name: inizio.name }] : ultima && !file ? ultima : [{ id: 'root', name: locale ? 'Questo PC' : 'Il mio Drive' }];
     const salva = $('.drv-ok').onclick;
     $('.drv-ok').onclick = () => { try { if (!file) localStorage.setItem('vps_ultima_cartella', JSON.stringify(percorso.slice(0, -1).length ? percorso.slice(0, -1) : percorso)); } catch (e) {} salva(); };
     apri();

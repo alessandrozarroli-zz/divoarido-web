@@ -208,17 +208,18 @@ export class Drive {
   }
 
   // Scrive (o crea) un file di testo nella cartella: flag, traiettorie, associazioni...
-  async caricaFile(cartellaId, nome, corpo, idEsistente) {
+  // (con mime = 'image/png' e corpo = Uint8Array scrive anche un'immagine: loghi delle squadre)
+  async caricaFile(cartellaId, nome, corpo, idEsistente, mime = 'application/json') {
     const t = await this.token();
     const base = this.api.replace('/drive/v3', '/upload/drive/v3');
     if (idEsistente) {
-      const r = await fetch(`${base}/files/${idEsistente}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: Object.assign({ 'Content-Type': 'application/json' }, this.mock ? {} : { Authorization: 'Bearer ' + t }), body: corpo });
+      const r = await fetch(`${base}/files/${idEsistente}?uploadType=media&supportsAllDrives=true`, { method: 'PATCH', headers: Object.assign({ 'Content-Type': mime }, this.mock ? {} : { Authorization: 'Bearer ' + t }), body: corpo });
       return r.ok ? (await r.json()).id : null;
     }
-    const meta = { name: nome, parents: [cartellaId], mimeType: 'application/json' };
+    const meta = { name: nome, parents: [cartellaId], mimeType: mime };
     const fd = new FormData();
     fd.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-    fd.append('file', new Blob([corpo], { type: 'application/json' }));
+    fd.append('file', new Blob([corpo], { type: mime }));
     const r = await fetch(`${base}/files?uploadType=multipart&supportsAllDrives=true&fields=id`, { method: 'POST', headers: this.mock ? {} : { Authorization: 'Bearer ' + t }, body: fd });
     if (!r.ok) return null;
     return (await r.json()).id;

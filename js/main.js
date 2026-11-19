@@ -289,13 +289,16 @@ async function dialogoCartella(opts) {
 // Aggiunge alle impostazioni del programma gli abbinamenti partita↔video salvati da altri
 // utenti (file condiviso nella cartella delle partite), per le partite ancora senza video.
 async function iniettaAssociazioni() {
-  if (!Object.keys(ASSOC.perCartella).length || !INDICE_VIDEO.size) return;
+  const haAssoc = Object.keys(ASSOC.perCartella).length && INDICE_VIDEO.size;
+  const haImpDrive = IMPD.pronto && !IMPD.applicato;
+  if (!haAssoc && !haImpDrive) return;
   const path = motore.root + '/appdata/VolleyProSuite/impostazioni.json';
   let imp = {};
   try { imp = JSON.parse(decodeURIComponent(escape(atob(await motore.chiama('fs_leggi', path))))); } catch (e) { imp = {}; }
-  const prima = JSON.stringify(imp.video_map || {});
-  await applicaAssociazioniCondivise(imp);
-  if (JSON.stringify(imp.video_map || {}) !== prima) await motore.chiama('fs_scrivi_testo', path, JSON.stringify(imp, null, 1));
+  const prima = JSON.stringify(imp);
+  if (haAssoc) await applicaAssociazioniCondivise(imp);
+  await applicaImpostazioniDrive(imp);
+  if (JSON.stringify(imp) !== prima) await motore.chiama('fs_scrivi_testo', path, JSON.stringify(imp, null, 1));
 }
 
 // La finestra di scelta del video si apre già nella cartella dei video (es. Dvs_Video, che sfogliando da «Il mio Drive» non si
@@ -308,7 +311,33 @@ function impostazioniScelta() {
   return { inizio, cercaVideo: () => drive.videoRicorsivi(inizio.id) };
 }
 
+// Immagine (es. logo di una squadra) scelta dal computer dell'utente: si copia nel file system del programma e si restituisce
+// il percorso, come se fosse un file del disco (il programma la legge con Pillow e la riduce a 120 px).
+const eDialogoImmagine = (opts) => /\.(png|jpe?g)\b/i.test(JSON.stringify((opts && opts.filetypes) || '')) && !/video/i.test(opts.title || '');
+function dialogoFileImmagine(opts) {
+  return new Promise((ok) => {
+    document.getElementById('vps-file-immagine')?.remove();
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*'; inp.id = 'vps-file-immagine'; inp.hidden = true;
+    document.body.append(inp);
+    let finito = false;
+    const fine = (v) => { if (finito) return; finito = true; inp.remove(); ok(v || ''); };
+    inp.addEventListener('change', async () => {
+      const f = inp.files && inp.files[0];
+      if (!f) return fine('');
+      try {
+        const p = motore.root + '/Drive/_immagini_scelte/' + nomeSicuro(f.name);
+        await motore.scriviFile(p, new Uint8Array(await f.arrayBuffer()));
+        fine(p);
+      } catch (e) { mostraErrore('Immagine', String((e && e.message) || e)); fine(''); }
+    });
+    inp.addEventListener('cancel', () => fine(''));
+    inp.click();
+  });
+}
+
 async function dialogoFileVideo(opts) {
+  if (eDialogoImmagine(opts)) return dialogoFileImmagine(opts);
   const f = drive.pc
     ? await sceltaPC(drive, { titolo: opts.title || 'Scegli il video', file: true })
     : await sceltaDrive(drive, Object.assign({ titolo: (opts.title || 'Scegli il video') + DOVE(), file: true, filtroFile: eVideo }, impostazioniScelta()));
@@ -368,6 +397,7 @@ async function montaDvw(cartella, silenzioso) {
         FILE_DATI.set(path + '/' + f.name, { cartellaId: idDati, nome: f.name, id: f.id });
       } catch (e) { console.warn('dati non letti', f.name, e); }
     }
+    try { await leggiImpostazioniDrive(figliDati, idDati); } catch (e) { console.warn('impostazioni del Drive non lette', e); }
     await motore.chiama('dati_base');
     MONTAGGI[path] = { id: cartella.id, name: cartella.name, kind: 'dvw' };
     salvaJson('vps_montaggi', MONTAGGI);
@@ -437,10 +467,12 @@ async function ripristinaImpostazioni() {
   }
   const vm = imp.video_map || {};
   await applicaAssociazioniCondivise(imp);
+  await applicaImpostazioniDrive(imp);
   if (Object.keys(imp).length || Object.keys(vm).length) {
     const dir = motore.root + '/appdata/VolleyProSuite';
     await motore.chiama('fs_scrivi_testo', dir + '/impostazioni.json', JSON.stringify(imp, null, 1));
   }
+  programmaSalvataggioImp(imp);      // prima volta: copia sul Drive quanto era già nel browser
 }
 
 // ------------------------------------------------------------------------------------------
@@ -481,6 +513,96 @@ async function applicaAssociazioniCondivise(imp) {
       const p = perId.get(v.id);
       if (p) imp.video_map[nf] = p;
     }
+  }
+}
+
+// ------------------------------------------------------------------------------------------
+// impostazioni personali sul Drive (cartella dati): loghi delle squadre (abbinamenti + immagini PNG), soglie degli
+// allenamenti e analisi salvate. Nel browser restano solo in localStorage (per browser, e si perdono se si cancellano
+// i dati del sito): qui si copiano nel file «divoarido_impostazioni (email).json» e nei PNG «divoarido_logo (email) nome.png».
+// Un file per utente (nessuno scrive sopra le impostazioni di un altro). All'avvio il Drive vince sul browser.
+// ------------------------------------------------------------------------------------------
+const PREF_IMP = 'divoarido_impostazioni';
+const IMPD = { pronto: false, applicato: false, cartellaId: null, fileId: null, dati: null, ultimo: '', logoIds: {}, logoB64: {}, timer: null, inCorso: Promise.resolve() };
+
+function emailImp() { return (drive.utente && drive.utente.emailAddress) || localStorage.getItem('vps_email') || 'utente'; }
+function nomeFileImp() { return `${PREF_IMP} (${emailImp()}).json`; }
+function prefLogo() { return `divoarido_logo (${emailImp()}) `; }
+const DIR_LOGHI = () => motore.root + '/appdata/VolleyProSuite/loghi/';
+const daB64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+const aB64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+function selezioneImp(imp) {
+  return { loghi: imp.loghi || {}, soglie_allenamenti: imp.soglie_allenamenti || null, analisi_salvate: imp.analisi_salvate || [] };
+}
+const firmaImp = (s) => JSON.stringify([s.loghi || {}, s.soglie_allenamenti || null, s.analisi_salvate || []]);
+
+// Legge dalla cartella dati il file delle impostazioni dell'utente (e l'elenco dei suoi loghi).
+async function leggiImpostazioniDrive(figli, idDati) {
+  if (!drive || drive.pc || IMPD.pronto) return;        // (con le cartelle del PC in modalità prova i file stanno accanto alle partite)
+  IMPD.cartellaId = idDati;
+  const pref = prefLogo();
+  for (const f of figli) if (f.name.startsWith(pref) && /\.png$/i.test(f.name)) IMPD.logoIds[f.name.slice(pref.length)] = f.id;
+  const mio = figli.find((f) => f.name === nomeFileImp());
+  if (mio) {
+    IMPD.fileId = mio.id;
+    try { IMPD.dati = JSON.parse(new TextDecoder().decode(await drive.scarica(mio.id))); }
+    catch (e) { console.warn('impostazioni dal Drive non lette', e); IMPD.dati = null; }
+  }
+  IMPD.ultimo = IMPD.dati ? firmaImp(IMPD.dati) : '';
+  IMPD.pronto = true;
+}
+
+// Una sola volta per sessione: i valori salvati sul Drive sostituiscono quelli del browser, e le immagini dei loghi
+// vengono copiate nel file system del programma (dove le cerca imposta_logo / png_logo_squadra).
+async function applicaImpostazioniDrive(imp) {
+  if (!IMPD.pronto || IMPD.applicato) return;
+  IMPD.applicato = true;
+  const d = IMPD.dati;
+  if (d) {
+    if (d.loghi) imp.loghi = d.loghi;
+    if (d.soglie_allenamenti) imp.soglie_allenamenti = d.soglie_allenamenti;
+    if (d.analisi_salvate) imp.analisi_salvate = d.analisi_salvate;
+  }
+  for (const v of Object.values(imp.loghi || {})) {
+    if (typeof v !== 'string' || !v.startsWith('file:')) continue;
+    const nome = v.slice(5), id = IMPD.logoIds[nome];
+    if (!id || IMPD.logoB64[nome]) continue;
+    try {
+      const bytes = new Uint8Array(await drive.scarica(id));
+      await motore.scriviFile(DIR_LOGHI() + nome, bytes);
+      IMPD.logoB64[nome] = aB64(bytes);
+    } catch (e) { console.warn('logo non letto dal Drive', nome, e); }
+  }
+}
+
+// Chiamata a ogni modifica delle impostazioni: se loghi/soglie/analisi sono cambiati li salva sul Drive (dopo 1,5 s).
+function programmaSalvataggioImp(imp) {
+  if (!IMPD.pronto || !IMPD.applicato) return;
+  const sel = selezioneImp(imp), f = firmaImp(sel);
+  const vuoto = !Object.keys(sel.loghi).length && !sel.soglie_allenamenti && !sel.analisi_salvate.length;
+  if (f === IMPD.ultimo || (vuoto && !IMPD.fileId)) return;
+  clearTimeout(IMPD.timer);
+  IMPD.timer = setTimeout(() => { IMPD.inCorso = IMPD.inCorso.then(() => salvaImpostazioniDrive(sel, f)); }, 1500);
+}
+
+async function salvaImpostazioniDrive(sel, f) {
+  try {
+    for (const v of Object.values(sel.loghi)) {
+      if (typeof v !== 'string' || !v.startsWith('file:')) continue;
+      const nome = v.slice(5);
+      let b64;
+      try { b64 = await motore.chiama('fs_leggi', DIR_LOGHI() + nome); } catch (e) { continue; }   // immagine non presente: niente da salvare
+      if (IMPD.logoB64[nome] === b64) continue;                                                   // già uguale sul Drive
+      const id = await drive.caricaFile(IMPD.cartellaId, prefLogo() + nome, daB64(b64), IMPD.logoIds[nome] || null, 'image/png');
+      if (!id) throw new Error('logo ' + nome + ' non caricato');
+      IMPD.logoIds[nome] = id; IMPD.logoB64[nome] = b64;
+    }
+    const id = await drive.caricaJson(IMPD.cartellaId, nomeFileImp(), Object.assign({ programma: 'Volley Pro Suite', aggiornato: new Date().toISOString() }, sel), IMPD.fileId);
+    if (!id) throw new Error('file delle impostazioni non caricato');
+    IMPD.fileId = id; IMPD.ultimo = f;
+  } catch (e) {
+    console.warn('impostazioni non salvate sul Drive', e);
+    avviso('Attenzione: loghi/soglie/analisi non salvati sul Drive (restano su questo browser). Riprova o rinnova l\'accesso Google.');
   }
 }
 
@@ -590,7 +712,10 @@ function salvaDato(path, testo) {
   }, 700));
 }
 
-function salvaImpostazioni(testo) { salvaJson('vps_impostazioni', testo); salvaAssociazioniCondivise(testo); }
+function salvaImpostazioni(testo) {
+  salvaJson('vps_impostazioni', testo); salvaAssociazioniCondivise(testo);
+  try { programmaSalvataggioImp(JSON.parse(testo)); } catch (e) {}
+}
 
 // Il token di Google dura un'ora: quando sta per scadere lo si rinnova al primo click
 // dell'utente (il browser permette la finestrella di Google solo dopo un click).

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DivoArido</title>
+<link rel="icon" type="image/png" sizes="64x64" href="img/favicon_64.png">
+<link rel="icon" type="image/png" sizes="32x32" href="img/favicon_32.png">
+<link rel="apple-touch-icon" href="img/logo_192.png">
+<link rel="stylesheet" href="css/app.css?v=1.0.23-20261118-2040">
+<script type="importmap">
+  {"imports": {
+      "./js/engine.js": "./js/engine.js?v=1.0.23-20261118-2040",
+      "./js/drive.js": "./js/drive.js?v=1.0.23-20261118-2040",
+      "./js/drivepc.js": "./js/drivepc.js?v=1.0.23-20261118-2040",
+      "./js/video.js": "./js/video.js?v=1.0.23-20261118-2040",
+      "./js/ui.js": "./js/ui.js?v=1.0.23-20261118-2040"
+  }}
+  </script>
+<script src="js/config.js?v=1.0.23-20261118-2040"></script>
+</head>
+<body>
+<div id="avvio">
+  <div class="avvio-card">
+    <div class="avvio-logo"><img src="img/logo_192.png" alt="" width="96" height="96"></div>
+    <h1>DivoArido</h1>
+    <p class="avvio-sotto">Dashboard analitica · versione web</p>
+    <div id="avvio-spinner" class="spinner"></div>
+    <p id="avvio-stato">Caricamento…</p>
+    <div id="avvio-login" hidden>
+      <p>Accedi con l'account Google che vede la cartella delle partite e dei video.</p>
+      <button class="btn-google">Accedi con Google</button>
+      <p class="pc-o" style="margin:10px 0 0">oppure, se il Drive non è disponibile:</p>
+      <button class="btn-pc" hidden>💻 Usa le cartelle del PC (Chrome / Edge)</button>
+      <p class="err"></p>
+    </div>
+    <div id="avvio-errore" hidden>
+      <p class="msg"></p>
+      <pre hidden></pre>
+      <button onclick="location.reload()">Riprova</button>
+    </div>
+  </div>
+</div>
+<div id="barra-sup" hidden>
+  <span class="marchio"><img src="img/logo_128.png" alt="" class="marchio-img"> DivoArido <small>web</small></span>
+  <span class="spazio"></span>
+  <button id="cambia-modo" hidden title="Cambia il luogo da cui si leggono partite e video">💻</button>
+  <button id="rinnova" hidden title="La sessione Google è scaduta">🔄 Rinnova accesso Google</button>
+  <span id="utente"></span>
+</div>
+<div id="desktop"><div id="velo"></div></div>
+<div id="avviso" hidden></div>
+<div id="avviso-lungo" hidden></div>
+<div id="errori"></div>
+<div id="occupato-ind"><div class="spinner piccolo"></div></div>
+<script type="module" src="js/main.js?v=1.0.23-20261118-2040"></script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+// Player video: sostituisce VLC. Il programma chiede "carica questo file dal secondo X";
+// qui il file è un video del Drive, letto a pezzi (streaming) tramite il service worker.
+
+export class Video {
+  constructor(ctx) {
+    this.ctx = ctx;               // {elementoWidget(id), risolvi(path) -> {url, nome} | null, invia(azione)}
+    this.players = new Map();     // id player -> {widget, video, path, stop}
+  }
+
+  comando(o) {
+    let p = this.players.get(o.id);
+    if (o.cmd === 'bind') {
+      if (!p) { p = { id: o.id }; this.players.set(o.id, p); }
+      p.widget = o.widget;
+      this.aggancia(p);
+      return;
+    }
+    if (!p) { p = { id: o.id }; this.players.set(o.id, p); }
+    this.aggancia(p);
+    const v = p.video;
+    switch (o.cmd) {
+      case 'load': this.carica(p, o.path, o.start || 0, o.stop); break;
+      case 'play': v && v.play().catch(() => this.stato(p, 'Paused')); break;
+      case 'pause': v && v.pause(); break;
+      case 'stop':
+        if (v) { v.pause(); }
+        this.stato(p, 'Stopped');
+        break;
+      case 'seek': if (v) { v.currentTime = (o.ms || 0) / 1000; } break;
+      case 'volume': if (v) v.volume = Math.max(0, Math.min(1, (o.v || 0) / 100)); break;
+      case 'mute': if (v) v.muted = !!o.v; break;
+      case 'rate': if (v) v.playbackRate = o.v || 1; break;
+      case 'score': this.punteggio(p, o.data); break;
+      case 'release': if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.parentElement?.remove(); } this.players.delete(o.id); break;
+    }
+  }
+
+  aggancia(p) {
+    const host = p.widget && this.ctx.elementoWidget(p.widget);
+    if (!host) return;
+    if (p.box && p.box.parentElement === host) return;
+    if (!p.box) {
+      const box = document.createElement('div');
+      box.className = 'tk-extra video-box';
+      const v = document.createElement('video');
+      v.playsInline = true;
+      v.controls = true;
+      v.preload = 'auto';
+      const msg = document.createElement('div');
+      msg.className = 'video-msg';
+      box.append(v, msg);
+      p.box = box; p.video = v; p.msg = msg;
+      v.addEventListener('playing', () => { this.messaggio(p, ''); this.stato(p, 'Playing'); });
+      v.addEventListener('pause', () => { if (p.statoAtteso !== 'Stopped') this.stato(p, 'Paused'); });
+      v.addEventListener('ended', () => this.stato(p, 'Ended'));
+      v.addEventListener('waiting', () => this.messaggio(p, 'Caricamento…', true));
+      v.addEventListener('canplay', () => this.messaggio(p, ''));
+      v.addEventListener('error', () => {
+        const err = v.error;
+        if (!v.getAttribute('src')) return;
+        let t = 'Impossibile riprodurre il video';
+        if (err && err.code === 4) t = 'Formato video non supportato dal browser (serve MP4 H.264 o WebM).';
+        else if (err && err.code === 2) t = 'Errore di rete durante la lettura del video dal Drive.';
+        this.messaggio(p, t);
+        this.stato(p, 'Error');
+      });
+      v.addEventListener('timeupdate', () => {
+        if (p.stop != null && v.currentTime >= p.stop) { p.stop = null; v.pause(); }
+        if (p.score) this.disegnaPunteggio(p);
+      });
+      v.addEventListener('loadedmetadata', () => { if (p.score) this.disegnaPunteggio(p, true); });
+      new ResizeObserver(() => { if (p.score) this.disegnaPunteggio(p, true); }).observe(box);
+    }
+    host.classList.add('tk-video-host');
+    host.append(p.box);
+  }
+
+  // Punteggio in sovrimpressione (stile TV), in alto a sinistra sull'immagine del video
+  punteggio(p, data) {
+    p.score = data || null;
+    if (!p.score) { if (p.scoreEl) p.scoreEl.remove(); p.scoreEl = null; return; }
+    this.disegnaPunteggio(p, true);
+  }
+
+  disegnaPunteggio(p, forza) {
+    const d = p.score, v = p.video;
+    if (!d || !p.box) return;
+    const dopo = d.t_punto != null && v && v.currentTime >= d.t_punto;
+    const firma = JSON.stringify([d, dopo]);
+    let el = p.scoreEl;
+    if (!el) { el = document.createElement('div'); el.className = 'score-tv'; p.box.append(el); p.scoreEl = el; forza = true; }
+    if (forza || el.dataset.firma !== firma) {
+      el.dataset.firma = firma;
+      const [pc, po] = dopo ? d.post : d.pre;
+      const pallini = (n) => [0, 1, 2].map((k) => `<i class="${k < n ? 'si' : 'no'}"></i>`).join('');
+      const logo = (u) => u ? `<img class="lg" src="${u}" alt="">` : '<span class="lg"></span>';
+      const riga = (sig, col, n, pt, u) => `<div class="r"><b style="background:${col}"></b>${logo(u)}<span class="sg">${sig}</span><span class="pl">${pallini(n)}</span><span class="pt">${pt}</span></div>`;
+      el.classList.toggle('trasp', d.stile === 'trasparente');
+      el.innerHTML = `<div class="sq">${riga(d.casa, d.col_casa, d.vc, pc, d.logo_casa)}${riga(d.ospite, d.col_ospite, d.vo, po, d.logo_ospite)}</div><div class="st"><small>SET</small>${d.set}</div>`;
+    }
+    // posizione: angolo in alto a sinistra dell'immagine (il video è "contain" dentro il riquadro)
+    const bw = p.box.clientWidth, bh = p.box.clientHeight, vw = v && v.videoWidth, vh = v && v.videoHeight;
+    let ox = 0, oy = 0;
+    if (vw && vh && bw && bh) { const sc = Math.min(bw / vw, bh / vh); ox = (bw - vw * sc) / 2; oy = (bh - vh * sc) / 2; }
+    el.style.left = (ox + 8) + 'px'; el.style.top = (oy + 8) + 'px';
+  }
+
+  messaggio(p, t, piccolo) {
+    if (!p.msg) return;
+    p.msg.textContent = t || '';
+    p.msg.classList.toggle('vis', !!t);
+    p.msg.classList.toggle('piccolo', !!piccolo);
+  }
+
+  carica(p, path, start, stop) {
+    const v = p.video;
+    if (!v) return;
+    // risolvi() può rispondere subito o con una promessa (video letto dal disco del PC)
+    const attuale = p.richiesta = (p.richiesta || 0) + 1;
+    let ris0;
+    try { ris0 = this.ctx.risolvi(path); }
+    catch (e) { ris0 = Promise.reject(e); }
+    Promise.resolve(ris0).then((ris) => {
+      if (attuale !== p.richiesta) return;       // nel frattempo è stata scelta un'altra clip
+      this.carica2(p, path, start, stop, ris);
+    }).catch((e) => {
+      if (attuale !== p.richiesta) return;
+      this.messaggio(p, (e && e.message) || 'Video non disponibile');
+      this.stato(p, 'Error');
+    });
+  }
+
+  carica2(p, path, start, stop, ris) {
+    const v = p.video;
+    if (!ris) {
+      this.messaggio(p, 'Video non disponibile: ' + path.split('/').pop());
+      this.stato(p, 'Error');
+      return;
+    }
+    p.stop = stop != null ? stop : null;
+    p.statoAtteso = null;
+    const vai = () => {
+      try { v.currentTime = start; } catch (e) {}
+      const pr = v.play();
+      if (pr) pr.catch((e) => {
+        if (e && e.name === 'NotAllowedError') this.messaggio(p, 'Premi ▶ per avviare il video');
+      });
+    };
+    if (p.path === path && v.readyState >= 1) {
+      vai();
+    } else {
+      p.path = path;
+      this.messaggio(p, 'Caricamento del video…', true);
+      v.src = ris.url;
+      v.addEventListener('loadedmetadata', vai, { once: true });
+    }
+  }
+
+  stato(p, s) {
+    if (p.ultimoStato === s && s !== 'Playing') return;
+    p.ultimoStato = s;
+    if (s === 'Stopped') p.statoAtteso = 'Stopped';
+    const ms = p.video ? Math.round(p.video.currentTime * 1000) : 0;
+    this.ctx.invia({ a: 'player', id: p.id, state: s, ms }, { silenzioso: true });
+  }
+
+  pulisci() {
+    for (const [id, p] of this.players) {
+      if (p.box && !p.box.isConnected) {
+        const host = p.widget && this.ctx.elementoWidget(p.widget);
+        if (host && host.isConnected) { host.append(p.box); continue; }
+        try { p.video.pause(); p.video.removeAttribute('src'); p.video.load(); } catch (e) {}
+        this.players.delete(id);
+      }
+    }
+  }
+
+  riaggancia() { for (const p of this.players.values()) this.aggancia(p); }
+}

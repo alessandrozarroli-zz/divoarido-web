@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DivoArido web — Guida</title>
+<style>
+  :root { --bg:#0f172a; --card:#111a2e; --bordo:#26344d; --testo:#e2e8f0; --tenue:#94a3b8; --acc:#8b5cf6; --ok:#22c55e; --att:#f59e0b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--testo); font:15px/1.6 "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .sotto { color: var(--tenue); margin: 0 0 28px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; padding-top: 12px; border-top: 1px solid var(--bordo); display:flex; gap:10px; align-items:center; }
+  h2 .n { background: var(--acc); color:#fff; border-radius: 50%; width: 28px; height: 28px; display:inline-grid; place-items:center; font-size: 14px; flex: 0 0 auto; }
+  h3 { font-size: 15px; margin: 20px 0 6px; color: #c4b5fd; }
+  ol, ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  code, kbd { background:#1e293b; border:1px solid var(--bordo); border-radius:4px; padding:1px 5px; font-family: Consolas, monospace; font-size: 13px; }
+  .card { background: var(--card); border:1px solid var(--bordo); border-radius: 10px; padding: 14px 16px; margin: 14px 0; }
+  .nota { border-left: 4px solid var(--att); }
+  .ok { border-left: 4px solid var(--ok); }
+  .schema { display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 14px 0; }
+  .schema div { background: var(--card); border:1px solid var(--bordo); border-radius: 10px; padding: 12px; font-size: 14px; }
+  .schema b { display:block; margin-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  td, th { border-bottom: 1px solid var(--bordo); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--tenue); font-weight: 600; }
+  a { color: #a5b4fc; }
+</style>
+</head>
+<body>
+<main>
+<h1><img src="img/logo_128.png" alt="" width="40" height="40" style="vertical-align:middle;border-radius:9px"> DivoArido — versione web</h1>
+<p class="sotto">Lo stesso programma della versione per Windows, che si apre da un link e legge partite e video direttamente dal Google Drive.</p>
+
+<div class="schema">
+  <div><b>📄 Il tuo programma</b>La pagina esegue nel browser il tuo file <code>VOLLEY PRO SUITE VIDEO.py</code>, senza modifiche: stessi calcoli, stessi PDF, stesse finestre.</div>
+  <div><b>☁️ Un'unica sorgente</b>I file .dvw e i video restano nella cartella del Drive. Nessuno li copia sul proprio portatile.</div>
+  <div><b>🎬 Video in streaming</b>Al posto di VLC c'è un player nella pagina. Legge dal Drive solo il pezzo che serve e salta subito al secondo dell'azione.</div>
+  <div><b>🔐 Accesso Google</b>Ognuno entra con il proprio account Google e vede solo le cartelle che gli hai condiviso.</div>
+</div>
+
+<h2><span class="n">0</span> Prova subito, senza Google (cartelle del PC)</h2>
+<p><b>Uso quotidiano sul PC di casa:</b> doppio clic sull'icona <b>«DivoArido web»</b> del Desktop (accende il programma in modo invisibile e apre la pagina). Con la chiave Google impostata usa il Google Drive; per provare le cartelle del PC al suo posto: <code>avvia_locale.bat --locale</code>.</p>
+<p>Finché in <code>js/config.js</code> la chiave <code>GOOGLE_CLIENT_ID</code> è vuota, <code>avvia_locale.bat</code> apre la versione web
+usando <b>le cartelle del tuo PC</b> al posto del Google Drive: scegli la cartella delle partite (.dvw) e quella dei video come nel programma
+per Windows (in cima all'elenco trovi già quelle usate dall'exe). Flag e traiettorie vengono scritti nella cartella delle partite, negli stessi file
+dell'exe (<code>VolleyProSuite_*.json</code>). Lascia aperta la finestra nera finché lavori.</p>
+<h2><span class="n">1</span> Prepara le cartelle sul Google Drive</h2>
+<ol>
+  <li>Crea, o usa quelle che hai già, una cartella con i file <b>.dvw</b> e una con i <b>video</b>. Quella dei video può contenere sottocartelle.</li>
+  <li>Condividi le due cartelle con gli account Google di chi deve usare il programma: <i>tasto destro → Condividi</i>. Basta il permesso <b>Visualizzatore</b>. Con il permesso <b>Editor</b> sulla cartella delle partite, gli abbinamenti partita↔video confermati da un utente vengono proposti già pronti anche agli altri.</li>
+  <li>I nomi dei video devono contenere la data e le sigle come nel programma per Windows, per esempio <code>26-03-08 ver-mil.mp4</code>, così l'abbinamento automatico funziona uguale.</li>
+</ol>
+<div class="card nota"><b>Formato dei video.</b> I browser riproducono <b>MP4 (H.264)</b>, cioè il formato più comune e quello delle telecamere e di VolleyStation. I file <b>AVI, WMV o MKV</b> vanno prima convertiti in MP4, per esempio con HandBrake, che è gratuito.</div>
+
+<h2><span class="n">2</span> Crea la "chiave" Google (una volta sola, circa 10 minuti)</h2>
+<p>Serve perché la pagina possa leggere il Drive di chi accede. È gratuita.</p>
+<ol>
+  <li>Apri <a href="https://console.cloud.google.com/projectcreate" target="_blank">console.cloud.google.com</a> con il tuo account Google e crea un <b>nuovo progetto</b>, per esempio "Volley Pro Suite". Poi selezionalo in alto a sinistra.</li>
+  <li>Menu <b>API e servizi → Libreria</b>: cerca <b>Google Drive API</b> e premi <b>Abilita</b>.</li>
+  <li>Menu <b>API e servizi → Schermata consenso OAuth</b> (Google Auth Platform) → <b>Inizia</b>:
+    <ul>
+      <li>Nome app: <i>DivoArido</i>, email di assistenza: la tua;</li>
+      <li>Pubblico: <b>Esterno</b> (oppure <b>Interno</b> se usate Google Workspace con un dominio vostro);</li>
+      <li>email di contatto: la tua → accetta → <b>Crea</b>.</li>
+    </ul>
+  </li>
+  <li>Scheda <b>Pubblico</b> (Audience) → <b>Aggiungi utenti</b>: inserisci le email Google di tutti quelli che useranno il programma, te compreso (massimo 100). Non serve per le app "Interne".</li>
+  <li>Scheda <b>Client</b> → <b>Crea client</b>:
+    <ul>
+      <li>Tipo di applicazione: <b>Applicazione web</b>;</li>
+      <li><b>Origini JavaScript autorizzate</b> → aggiungi <code>http://localhost:8000</code>, per la prova sul tuo PC. Poi aggiungi anche l'indirizzo del sito, che otterrai al passo 4, per esempio <code>https://tuonome.github.io</code>;</li>
+      <li>i "URI di reindirizzamento" restano vuoti → <b>Crea</b>.</li>
+    </ul>
+  </li>
+  <li>Copia l'<b>ID client</b>, quello che finisce con <code>.apps.googleusercontent.com</code>. Il "client secret" non serve.</li>
+  <li>Apri <code>js\config.js</code> con il Blocco note e incollalo tra gli apici: <code>GOOGLE_CLIENT_ID: '123...apps.googleusercontent.com',</code></li>
+</ol>
+<div class="card">Al primo accesso Google mostrerà <i>"Google non ha verificato questa app"</i>. È normale per un'app ad uso interno: basta cliccare <b>Continua</b>. Non serve chiedere la verifica a Google finché gli utenti sono nella lista del punto 4.</div>
+
+<h2><span class="n">3</span> Prova sul tuo PC</h2>
+<ol>
+  <li>Fai doppio clic su <code>avvia_locale.bat</code>. Si apre una finestra nera, da lasciare aperta, e il browser su <code>http://localhost:8000</code>. Usa <b>Chrome</b> o <b>Edge</b>.</li>
+  <li><b>Accedi con Google</b>. Al primo avvio servono alcuni secondi in più per scaricare Python nel browser; dalle volte successive è già in memoria.</li>
+  <li>Nella finestra "Cartelle di lavoro" premi <b>Sfoglia...</b> e scegli le cartelle del Drive: navigando tra le cartelle oppure incollando il link della cartella. Poi <b>Apri</b>. Da qui in avanti tutto funziona come nel programma per Windows.</li>
+</ol>
+<div class="card ok">Le cartelle scelte e gli abbinamenti dei video vengono ricordati. Alla volta successiva la finestra di avvio è già compilata e le partite nuove aggiunte al Drive compaiono da sole.</div>
+
+<h2><span class="n">4</span> Mettila online (per usarla da qualsiasi postazione)</h2>
+<p>La pagina va pubblicata su un indirizzo <b>https</b>. La strada più semplice e gratuita è GitHub Pages:</p>
+<ol>
+  <li>Crea un account su <a href="https://github.com/signup" target="_blank">github.com</a>, poi <b>New repository</b>: nome per esempio <code>volley</code>, <b>Public</b> → <b>Create repository</b>.</li>
+  <li>Premi <b>uploading an existing file</b> e trascina <b>il contenuto</b> di questa cartella: <code>index.html</code>, <code>sw.js</code> e le cartelle <code>css</code>, <code>js</code>, <code>engine</code>. I file <code>.bat</code>, <code>avvia_locale.py</code> e questa guida non servono. Poi <b>Commit changes</b>.</li>
+  <li><b>Settings → Pages</b> → Source: <b>Deploy from a branch</b>, Branch: <b>main</b>, cartella <b>/ (root)</b> → <b>Save</b>. Dopo 1–2 minuti il sito è su <code>https://tuonome.github.io/volley/</code>.</li>
+  <li>Torna su Google Cloud (passo 2, scheda Client), apri il client e aggiungi l'origine <code>https://tuonome.github.io</code>, senza la parte <code>/volley/</code>.</li>
+  <li>Manda il link ai collaboratori. Ognuno lo apre con Chrome o Edge, accede con il proprio account e sceglie le cartelle condivise.</li>
+</ol>
+<div class="card nota"><b>Proteggi il tuo programma.</b> Un sito pubblico rende scaricabili i file che contiene, compreso <code>engine/volley.py</code>, cioè la tua logica di analisi. I dati restano protetti, perché partite e video si leggono solo dopo l'accesso Google. Per tenere privato anche il programma:
+  <ol>
+    <li>carica <code>VOLLEY PRO SUITE VIDEO.py</code> in una cartella del Drive condivisa con i collaboratori;</li>
+    <li>copia il suo link (<i>tasto destro → Condividi → Copia link</i>) e incollalo in <code>js\config.js</code> alla voce <code>PROGRAMMA_DRIVE</code>;</li>
+    <li>sul sito <b>non</b> caricare <code>engine/volley.py</code>.</li>
+  </ol>
+  Così il programma lo legge solo chi accede con Google e ha accesso a quel file.</div>
+
+<h2><span class="n">4+</span> Più utenti: come far entrare un collaboratore</h2>
+<p>Per ogni persona servono tre cose, tutte da fare una volta sola da chi gestisce il programma:</p>
+<ol>
+  <li><b>Aggiungerla come utente di prova.</b> Google Cloud → <i>Google Auth Platform → Pubblico → Utenti di test → Add users</i>, con l'email Google della persona (massimo 100). Senza questo, al primo accesso Google risponde «accesso negato».</li>
+  <li><b>Condividere le partite e i video</b> (la cartella <code>Dvs_Video</code> sul Drive): tasto destro → <i>Condividi</i> → email → permesso <b>Visualizzatore</b>. Dal browser la persona non può modificare né cancellare nulla.</li>
+  <li><b>Dare il permesso Editor sulla sola cartella dei dati</b> (<code>DivoArido / dati</code>), se deve poter salvare flag, traiettorie e abbinamenti partita↔video. Chi ha solo la visualizzazione guarda e analizza, ma non salva.</li>
+</ol>
+<div class="card nota"><b>Accesso di Google.</b> L'app è «in fase di test»: finché resta così, ogni persona vede l'avviso «Google non ha verificato questa app» (si va avanti con <i>Avanzate → Vai a DivoArido → Continua</i>) e Google può chiedere di riconfermare il consenso ogni tanto (di solito dopo 7 giorni). Se la finestra di Google non si apre, controlla che il browser non blocchi i popup per questo sito.</div>
+<div class="card ok"><b>Cartelle già pronte.</b> In <code>js\config.js</code> sono impostate la cartella delle partite e dei video (<code>Dvs_Video</code>) e quella dei dati. Chi apre il programma per la prima volta trova i campi già compilati e preme solo <b>Apri</b>. Se una cartella non è condivisa con lui, compare un messaggio chiaro (non un errore tecnico) e può sceglierne un'altra con <b>Sfoglia</b>. Nel selettore c'è anche <b>Cerca una cartella per nome</b>, che trova pure le cartelle dell'area «Computer» del Drive.</div>
+<div class="card nota"><b>Partite e video nella stessa cartella.</b> Il programma legge la cartella <code>Dvs_Video</code> e tutte le sue sottocartelle (una per partita, con dentro video e <code>.dvw</code>). Le sedute di allenamento (nome con «allenam») per ora non entrano nell'elenco delle gare: nel web non c'è ancora la sezione Allenamenti. Le partite senza video si possono comunque analizzare; per la riproduzione serve che il video sia sul Drive.</div>
+
+<h2><span class="n">5</span> Aggiornare il programma</h2>
+<table>
+  <tr><th>Se usi…</th><th>Quando modifichi il .py</th></tr>
+  <tr><td><code>PROGRAMMA_DRIVE</code> (consigliato)</td><td>Sul Drive: tasto destro sul file → <b>Gestisci versioni → Carica nuova versione</b>. Il link resta uguale e tutti hanno subito la versione nuova, ricaricando la pagina.</td></tr>
+  <tr><td><code>engine/volley.py</code></td><td>Doppio clic su <code>aggiorna_programma.bat</code>, che copia il .py dalla cartella .claude del Desktop e aggiorna da solo il numero di versione dei file della pagina (<code>python stampa_versione.py</code>): così il browser degli utenti riscarica solo i file cambiati e non mescola file vecchi e nuovi. Se la pagina è online, ricarica su GitHub <code>engine/volley.py</code>, <code>index.html</code> e la cartella <code>js</code>.</td></tr>
+</table>
+<p>Funzionano senza ritocchi le modifiche ai calcoli, ai PDF e alle finestre fatte con gli stessi strumenti di sempre: tkinter, reportlab e VLC per i video. Nuove librerie Python esterne invece andrebbero aggiunte alla versione web.</p>
+
+<h2><span class="n">6</span> Differenze rispetto al programma per Windows</h2>
+<table>
+  <tr><th>Programma per Windows</th><th>Versione web</th></tr>
+  <tr><td>Cartelle sul disco (Sfoglia)</td><td>Cartelle del Google Drive: Sfoglia apre il Drive</td></tr>
+  <tr><td>Video con VLC</td><td>Player del browser, che legge in streaming dal Drive (solo MP4/WebM)</td></tr>
+  <tr><td>PDF salvati dove scegli</td><td>PDF scaricati nella cartella Download del browser</td></tr>
+  <tr><td>Impostazioni nel PC</td><td>Impostazioni nel browser; abbinamenti dei video salvati anche in un piccolo file <code>volleyprosuite_video (email).json</code> nella cartella delle partite, così valgono per tutti gli utenti</td></tr>
+  <tr><td>Finestre del sistema operativo</td><td>Finestre dentro la pagina: si spostano dalla barra del titolo, si ridimensionano dall'angolo in basso a destra, ▢ ingrandisce</td></tr>
+</table>
+
+<h2><span class="n">7</span> Se qualcosa non va</h2>
+<ul>
+  <li><b>"Manca la configurazione di Google"</b>: <code>GOOGLE_CLIENT_ID</code> non è compilato in <code>js\config.js</code>.</li>
+  <li><b>Errore di Google "origin_mismatch"</b> o "redirect_uri": l'indirizzo della pagina non è tra le <i>Origini JavaScript autorizzate</i> del passo 2.</li>
+  <li><b>"Accesso bloccato / app non verificata"</b> senza il tasto Continua: l'email non è tra gli utenti di test (passo 2, punto 4).</li>
+  <li><b>Il video non parte</b>: controlla che sia MP4. La prima volta che si apre la pagina può servire ricaricarla una volta con F5, per attivare lo streaming.</li>
+  <li><b>Errore nel programma</b>: in basso a destra compare un riquadro rosso con i dettagli, gli stessi che il programma per Windows scrive nel file di log.</li>
+</ul>
+</main>
+</body>
+</html>

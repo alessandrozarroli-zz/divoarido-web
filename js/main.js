@@ -379,7 +379,7 @@ async function montaDvw(cartella, silenzioso, allen) {
     // le partite si cercano nella cartella e nelle sue sottocartelle (anche una cartella per partita);
     // le sedute di allenamento: solo i file con @ nel nome (corretti e associati al video), come nel programma per Windows
     let elencoDvw = await drive.dvwRicorsivi(cartella.id);
-    if (allen) elencoDvw = elencoDvw.filter((f) => f.name.includes('@'));
+    elencoDvw = elencoDvw.filter((f) => f.name.includes('@'));      // gare e sedute: solo i file con @ nel nome (gli altri non sono ancora attendibili per lo studio)
     const { partite: dvw, doppi, allenamenti } = filtraPartite(elencoDvw, { includiAllenamenti: !!allen || !!CFG.INCLUDI_ALLENAMENTI });
     if (allen) for (const f of dvw) NOMI_ALLEN.add(f.name);
     if (doppi.length) console.warn('Partite con lo stesso nome in più sottocartelle, ignorate:', doppi);

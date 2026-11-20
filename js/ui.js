@@ -323,7 +323,12 @@ function disegnaLabel(el, node, kw) {
 function disegnaBottone(el, node, kw) {
   el.classList.add('tk-bottone');
   el.type = 'button';
-  const t = testo(kw.text);
+  let t = testo(kw.text);
+  if (node.k === 'checkbutton' || node.k === 'radiobutton') {         // stato della casella/del pulsante di scelta (arriva dal programma in node.x.on)
+    const on = !!(node.x && node.x.on);
+    if (kw.indicatoron === false) el.style.boxShadow = on ? 'inset 0 0 0 2px #8b5cf6' : '';
+    else t = (node.k === 'radiobutton' ? (on ? '◉ ' : '○ ') : (on ? '☑ ' : '☐ ')) + t;
+  }
   if (el.textContent !== t) el.textContent = t;
   const [px] = pad(kw.padx ?? 4), [, py] = pad(kw.pady ?? 1);
   el.style.padding = `${py}px ${px}px`;

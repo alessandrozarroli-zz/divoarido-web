@@ -155,8 +155,11 @@ def _esegui(a):
         return
     if tipo == 'command':
         w = _w(a['id'])
-        c = w.kw.get('command')
-        if c: c()
+        if getattr(w, 'KIND', '') in ('checkbutton', 'radiobutton'):
+            w.invoke()                  # cambia la variabile (come in Tk) e poi chiama il comando
+        else:
+            c = w.kw.get('command')
+            if c: c()
     elif tipo == 'event':
         w = _w(a['id'])
         for seq in a['seqs']:

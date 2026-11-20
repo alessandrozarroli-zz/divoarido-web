@@ -207,9 +207,10 @@ class Widget:
         if master is not None and isinstance(master, Widget):
             master.children_list.append(self)
             master._tocca()
-        tv = self.kw.get('textvariable')
-        if isinstance(tv, Variable):
-            _LEGATI.setdefault(tv.id, set()).add(self)
+        for chiave_var in ('textvariable', 'variable'):          # 'variable' = caselle di spunta e pulsanti di scelta: si ridisegnano quando la variabile cambia
+            tv = self.kw.get(chiave_var)
+            if isinstance(tv, Variable):
+                _LEGATI.setdefault(tv.id, set()).add(self)
 
     # -- marcatura per il ridisegno --
     def _tocca(self):
@@ -481,11 +482,41 @@ class Button(Widget):
 
 
 class Checkbutton(Button):
+    """Casella di spunta: come in Tk, il clic cambia la variabile (onvalue/offvalue, di norma 1/0 o True/False) e poi chiama il comando."""
     KIND = 'checkbutton'
+
+    def _acceso(self):
+        v = self.kw.get('variable')
+        try: return v is not None and v.get() == self.kw.get('onvalue', 1)
+        except Exception: return False
+
+    def extra(self): return {'on': self._acceso()}
+
+    def invoke(self):
+        v = self.kw.get('variable')
+        if v is not None: v.set(self.kw.get('offvalue', 0) if self._acceso() else self.kw.get('onvalue', 1))
+        self._tocca()
+        c = self.kw.get('command')
+        if c: return c()
 
 
 class Radiobutton(Button):
+    """Pulsante di scelta: il clic mette 'value' nella variabile e poi chiama il comando."""
     KIND = 'radiobutton'
+
+    def _acceso(self):
+        v = self.kw.get('variable')
+        try: return v is not None and str(v.get()) == str(self.kw.get('value', 1))
+        except Exception: return False
+
+    def extra(self): return {'on': self._acceso()}
+
+    def invoke(self):
+        v = self.kw.get('variable')
+        if v is not None: v.set(self.kw.get('value', 1))
+        self._tocca()
+        c = self.kw.get('command')
+        if c: return c()
 
 
 class Entry(Widget):

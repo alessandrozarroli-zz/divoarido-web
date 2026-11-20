@@ -545,7 +545,13 @@ function disegnaNotebook(el, node, kw) {
     b.textContent = t.text;
     b.style.background = i === el._sel ? (selBg || '#8b5cf6') : (stileTab.background || '');
     b.style.color = i === el._sel ? '#fff' : (stileTab.foreground || '');
-    b.onclick = () => { el._sel = i; el._selProgramma = i; ctx.invia({ a: 'notebook', id: node.id, i }); disegnaNotebook(el, NODI.get(node.id), kw); };
+    b.onclick = () => {
+      el._sel = i; el._selProgramma = i;
+      const n0 = NODI.get(node.id);
+      if (n0 && n0.x) n0.x.sel = i;          // il nodo ricevuto dal programma dice ancora la scheda di prima: senza questo il ridisegno la rimette com'era
+      ctx.invia({ a: 'notebook', id: node.id, i });
+      disegnaNotebook(el, n0, kw);
+    };
     testa.append(b);
   });
   const pagine = tabs.map((t) => {

@@ -210,6 +210,7 @@ def _esegui(a):
         w = _w(a['id'])
         if w.sel != int(a['i']):
             w.sel = int(a['i'])
+            w._tocca()          # la scheda scelta va rimandata alla pagina anche se nessun comando la ridisegna (es. Report sedute: «Andamento giocatori»)
             _fire(w, '<<NotebookTabChanged>>', a.get('ev'))
     elif tipo == 'player':
         p = htk.PLAYERS.get(a['id'])

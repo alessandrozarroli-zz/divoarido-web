@@ -40,6 +40,30 @@ button { font: inherit; }
 #barra-sup .marchio small { color: var(--accento); font-weight: bold; text-transform: uppercase; font-size: 9px; letter-spacing: 1px; margin-left: 4px; }
 #barra-sup .spazio { flex: 1; }
 #utente { color: var(--tenue); }
+/* Elenco clip a schermo intero: vista trasparente e riduzione a icona */
+.tk-finestra.tk-trasp { opacity: .38; transition: opacity .15s; }
+.tk-finestra.tk-trasp:hover, .tk-finestra.tk-trasp:focus-within { opacity: 1; }
+.tk-finestra.tk-ridotta { display: none; }
+.tk-azioni .tk-trasp-b, .tk-azioni .tk-riduci { background: transparent; border: 0; color: #cbd5e1; cursor: pointer; font-size: 14px; border-radius: 4px; width: 28px; height: 26px; }
+.tk-azioni .tk-trasp-b:hover, .tk-azioni .tk-riduci:hover { background: #334155; }
+#elenco-icona { position: fixed; left: 10px; top: 90px; z-index: 30000; width: 42px; height: 42px; border-radius: 50%; border: 2px solid #c4b5fd; background: rgba(139,92,246,.85); color: #fff; font-size: 20px; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+#elenco-icona:hover { background: #8b5cf6; }
+#profilo-ind { color: #fbbf24; font-weight: bold; }
+#profilo-ind, #gest-profili, #cambia-modo, #utente { white-space: nowrap; }
+#gest-profili { background: #334155; color: #e2e8f0; border: 0; border-radius: 4px; padding: 2px 10px; cursor: pointer; }
+.gp-dlg { width: min(720px, calc(100vw - 24px)); }
+.gp-corpo { padding: 12px 16px; overflow: auto; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.gp-nota { margin: 0; color: var(--tenue); font-size: 12px; line-height: 1.5; }
+.gp-profilo { border: 1px solid #334155; border-radius: 8px; padding: 6px 10px; background: #0f172a; }
+.gp-profilo summary { cursor: pointer; font-weight: bold; padding: 4px 0; }
+.gp-interno { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 4px; }
+.gp-funzioni { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 12px; }
+.gp-voce { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.gp-riga { display: flex; flex-direction: column; gap: 4px; }
+.gp-riga a { color: #93c5fd; }
+.gp-nuovo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.gp-nuovo input[type=text] { flex: 1; min-width: 220px; background: #0f172a; color: var(--testo); border: 1px solid #334155; border-radius: 4px; padding: 5px 8px; }
+.gp-nuovo select { background: #0f172a; color: var(--testo); border: 1px solid #334155; border-radius: 4px; padding: 4px 6px; }
 #rinnova { background: #b45309; color: #fff; border: 0; border-radius: 4px; padding: 2px 10px; cursor: pointer; }
 
 #desktop { position: fixed; top: 26px; left: 0; right: 0; bottom: 0; }

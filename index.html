@@ -7,17 +7,18 @@
 <link rel="icon" type="image/png" sizes="64x64" href="img/favicon_64.png">
 <link rel="icon" type="image/png" sizes="32x32" href="img/favicon_32.png">
 <link rel="apple-touch-icon" href="img/logo_192.png">
-<link rel="stylesheet" href="css/app.css?v=1.0.26-20261121-1211">
+<link rel="stylesheet" href="css/app.css?v=1.0.27-20261121-1918">
 <script type="importmap">
   {"imports": {
-      "./js/engine.js": "./js/engine.js?v=1.0.26-20261121-1211",
-      "./js/drive.js": "./js/drive.js?v=1.0.26-20261121-1211",
-      "./js/drivepc.js": "./js/drivepc.js?v=1.0.26-20261121-1211",
-      "./js/video.js": "./js/video.js?v=1.0.26-20261121-1211",
-      "./js/ui.js": "./js/ui.js?v=1.0.26-20261121-1211"
+      "./js/engine.js": "./js/engine.js?v=1.0.27-20261121-1918",
+      "./js/drive.js": "./js/drive.js?v=1.0.27-20261121-1918",
+      "./js/drivepc.js": "./js/drivepc.js?v=1.0.27-20261121-1918",
+      "./js/video.js": "./js/video.js?v=1.0.27-20261121-1918",
+      "./js/ui.js": "./js/ui.js?v=1.0.27-20261121-1918",
+      "./js/profili.js": "./js/profili.js?v=1.0.27-20261121-1918"
   }}
   </script>
-<script src="js/config.js?v=1.0.26-20261121-1211"></script>
+<script src="js/config.js?v=1.0.27-20261121-1918"></script>
 </head>
 <body>
 <div id="avvio">
@@ -44,6 +45,8 @@
 <div id="barra-sup" hidden>
   <span class="marchio"><img src="img/logo_128.png" alt="" class="marchio-img"> DivoArido <small>web</small></span>
   <span class="spazio"></span>
+  <span id="profilo-ind"></span>
+  <button id="gest-profili" hidden title="Profili degli utenti: quali funzioni vede ciascuno">👥 Gestione profili</button>
   <button id="cambia-modo" hidden title="Cambia il luogo da cui si leggono partite e video">💻</button>
   <button id="rinnova" hidden title="La sessione Google è scaduta">🔄 Rinnova accesso Google</button>
   <span id="utente"></span>
@@ -53,6 +56,6 @@
 <div id="avviso-lungo" hidden></div>
 <div id="errori"></div>
 <div id="occupato-ind"><div class="spinner piccolo"></div></div>
-<script type="module" src="js/main.js?v=1.0.26-20261121-1211"></script>
+<script type="module" src="js/main.js?v=1.0.27-20261121-1918"></script>
 </body>
 </html>

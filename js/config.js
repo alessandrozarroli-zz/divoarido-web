@@ -39,6 +39,12 @@ window.VPS_CONFIG = {
   CARTELLA_ALLEN_VIDEO_PREDEFINITA: '1nh70WdXAFKGWXk3UG5q9genQddlIFB16',
   NOME_CARTELLA_ALLEN_VIDEO: 'Allenamenti - video',
 
+  // PROFILI D'USO (completo / reader / personalizzati, vedi js/profili.js). MARCATORE_COMPLETO = ID della cartella «Funzioni complete»
+  // (la vede solo chi ha il profilo completo; vuoto = profili NON attivi, tutti vedono tutto come prima). CARTELLA_PROFILI = ID della
+  // cartella del proprietario in cui la pagina «Gestione profili» crea le cartelle-marcatore dei profili personalizzati.
+  MARCATORE_COMPLETO: '',
+  CARTELLA_PROFILI: '',
+
   // false = le sedute di allenamento (cartelle o file con «allenam» nel nome) non entrano nell'elenco delle gare:
   // nel web non c'è ancora la sezione Allenamenti. Mettere true per includerle.
   INCLUDI_ALLENAMENTI: false,
@@ -46,5 +52,5 @@ window.VPS_CONFIG = {
   // Non modificare (versioni dei componenti)
   PYODIDE_URL: 'https://cdn.jsdelivr.net/pyodide/v0.28.2/full/',
   REPORTLAB_WHEEL: 'reportlab-5.0.1-py3-none-any.whl',
-  VERSIONE: '1.0.26-20261121-1211',
+  VERSIONE: '1.0.27-20261121-1918',
 };

@@ -126,6 +126,7 @@ function disegnaFinestra(node) {
   if (node.x && node.x.wm) f.wm = node.x.wm;
   f.barra.querySelector('.tk-titolo').textContent = f.wm.title || '';
   if (f.radice) document.title = f.wm.title || 'DivoArido';
+  adattaElencoClip(f);
   const el = disegna(node);
   if (el !== f.body.firstChild) { f.body.replaceChildren(el); }
   el.classList.add('tk-root');
@@ -161,9 +162,42 @@ function aggiornaVelo() {
   document.getElementById('velo').classList.toggle('attivo', modale);
 }
 
+// Elenco delle clip a schermo intero (finestra «Elenco Clip», sempre in primo piano): come la barra dell'exe, vista NORMALE o TRASPARENTE
+// (quasi invisibile sopra il video, torna piena col mouse sopra) e RIDUCI A ICONA (tasto L o clic sull'icona per riaprirla).
+// La vista scelta resta nel browser. 21/11/2026.
+function adattaElencoClip(f) {
+  if (f.elencoClip || f.radice || f.wm.title !== 'Elenco Clip') return;
+  f.elencoClip = true;
+  const az = f.barra.querySelector('.tk-azioni');
+  const bT = document.createElement('button'); bT.className = 'tk-trasp-b'; bT.title = 'Vista trasparente / normale'; bT.textContent = '◌';
+  const bR = document.createElement('button'); bR.className = 'tk-riduci'; bR.title = 'Riduci a icona (tasto L)'; bR.textContent = '▁';
+  az.prepend(bT, bR);
+  let trasp = false;
+  try { trasp = localStorage.getItem('vps_elenco_trasp') === '1'; } catch (e) {}
+  const applica = () => { f.box.classList.toggle('tk-trasp', trasp); bT.textContent = trasp ? '◉' : '◌'; };
+  applica();
+  bT.onclick = () => { trasp = !trasp; try { localStorage.setItem('vps_elenco_trasp', trasp ? '1' : '0'); } catch (e) {} applica(); };
+  const ic = document.createElement('button'); ic.id = 'elenco-icona'; ic.hidden = true; ic.textContent = '☰'; ic.title = "Riapri l'elenco delle clip (tasto L)";
+  document.body.append(ic);
+  f.icona = ic;
+  f.riduciElenco = (si) => { f.box.classList.toggle('tk-ridotta', si); ic.hidden = !si; if (!si) attiva([...FINESTRE].find(([, x]) => x === f)?.[0]); };
+  bR.onclick = () => f.riduciElenco(true);
+  ic.onclick = () => f.riduciElenco(false);
+}
+document.addEventListener('keydown', (e) => {
+  if ((e.key !== 'l' && e.key !== 'L') || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+  const f = [...FINESTRE.values()].find((x) => x.elencoClip);
+  if (!f) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  f.riduciElenco(!f.box.classList.contains('tk-ridotta'));
+}, true);
+
 function chiudiFinestra(id) {
   const f = FINESTRE.get(id);
   if (!f) return;
+  if (f.icona) f.icona.remove();
   if (f.wm.fullscreen && document.fullscreenElement) { try { document.exitFullscreen(); } catch (e) {} }
   f.box.remove();
   FINESTRE.delete(id);

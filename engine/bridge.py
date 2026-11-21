@@ -69,6 +69,19 @@ def prepara(root=''):
     return json.dumps({'ok': True, 'impostazioni': V._file_impostazioni()})
 
 
+def profilo_funzioni():
+    """Elenco delle funzioni che un profilo puo' abilitare: [[chiave, etichetta, nel_reader], ...] (la lista sta nel programma)."""
+    return json.dumps([list(x) for x in getattr(V, 'FUNZIONI_PROFILO', [])], ensure_ascii=False)
+
+
+def imposta_profilo(js):
+    """Profilo d'uso dell'utente (deciso dalla pagina dopo l'accesso a Google): vuoto = tutte le funzioni.
+    Va chiamato PRIMA di avvia(). Con un programma piu' vecchio (senza profili) non fa nulla."""
+    f = getattr(V, 'imposta_profilo_web', None)
+    if f is not None: f(json.loads(js) if js else None)
+    return 'ok'
+
+
 def avvia(con_avvio=True):
     """Come il blocco __main__ del programma: finestra principale + finestra di avvio."""
     app = V.AppAnalisiDefinitiva()

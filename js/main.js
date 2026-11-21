@@ -4,8 +4,11 @@ import { Drive, sceltaDrive, eVideo, idDaLink, filtraPartite, messaggioLogin, me
 import { DrivePC, sceltaPC, pcDisponibile } from './drivepc.js';
 import { Video } from './video.js';
 import * as UI from './ui.js';
+import { determinaProfilo, apriGestione } from './profili.js';
 
 const CFG = window.VPS_CONFIG || {};
+// Profilo d'uso (completo / reader / personalizzato): lo decide determinaProfilo() dopo l'accesso. Fino ad allora tutto abilitato.
+let PROFILO = { chiave: 'completo', nome: 'Completo', funzioni: null, scrive: true, gestione: false };
 const $ = (s) => document.querySelector(s);
 let motore = null;
 let drive = null;
@@ -69,6 +72,7 @@ async function avvio() {
     stato('Preparazione del programma…');
     $('#avvio-login').hidden = true; $('#avvio-spinner').hidden = false;
     await pMotore;
+    await applicaProfilo();
     video = new Video({ elementoWidget: UI.elementoWidget, risolvi: risolviVideo, invia });
     UI.initUI({ invia, onOut: gestisciOut, video, ridisegnaTutto: () => invia({ a: 'noop' }, { tutto: true }) });
     await ripristinaImpostazioni();
@@ -81,6 +85,29 @@ async function avvio() {
     console.error(e);
     erroreAvvio('Avvio non riuscito: ' + (e.message || e), e.stack || '');
   }
+}
+
+// Profilo d'uso: si decide DOPO l'accesso a Google e PRIMA che il programma apra la finestra principale (cosi' i pulsanti non abilitati non compaiono).
+async function applicaProfilo() {
+  stato('Verifico il tuo profilo…');
+  try { PROFILO = await determinaProfilo({ drive, CFG, motore }); } catch (e) { console.warn('profilo', e); }
+  const f = PROFILO.funzioni;
+  await motore.chiama('imposta_profilo', f == null ? '' : JSON.stringify({ nome: PROFILO.nome, funzioni: f }));
+  const ind = $('#profilo-ind');
+  if (ind) {
+    ind.textContent = PROFILO.chiave === 'completo' && !PROFILO.simulato ? '' : `Profilo: ${PROFILO.nome}${PROFILO.simulato ? ' (prova)' : ''}`;
+    ind.title = PROFILO.incerto ? 'Non sono riuscito a verificare il tuo profilo: lavori con quello base. Ricarica la pagina (F5) per riprovare.' : '';
+  }
+  const g = $('#gest-profili');
+  if (g) { g.hidden = !PROFILO.gestione; g.onclick = () => apriGestione({ drive, CFG, profilo: PROFILO, messaggio: (t) => avviso(t) }); }
+  if (PROFILO.incerto) setTimeout(() => avviso('Non sono riuscito a verificare il tuo profilo: lavori con quello base. Ricarica la pagina (F5) per riprovare.'), 1500);
+}
+
+let avvisoFlagFatto = false;
+function avvisoFlagNonSalvati() {
+  if (avvisoFlagFatto) return;
+  avvisoFlagFatto = true;
+  messaggio('info', 'Flag non salvate', `Il tuo profilo (${PROFILO.nome}) non salva sul Drive: le flag che inserisci valgono solo finché questa pagina resta aperta.`);
 }
 
 function richiediLogin() {
@@ -620,6 +647,7 @@ async function applicaImpostazioniDrive(imp) {
 
 // Chiamata a ogni modifica delle impostazioni: se loghi/soglie/analisi sono cambiati li salva sul Drive (dopo 1,5 s).
 function programmaSalvataggioImp(imp) {
+  if (!PROFILO.scrive) return;               // profili senza «salva» (reader...): niente scritture sul Drive
   if (!IMPD.pronto || !IMPD.applicato) return;
   const sel = selezioneImp(imp), f = firmaImp(sel);
   const vuoto = !Object.keys(sel.loghi).length && !sel.soglie_allenamenti && !sel.analisi_salvate.length;
@@ -653,6 +681,7 @@ const salvataggioAssoc = {};
 // Gli abbinamenti video (video_map: nome del .dvw -> video) delle gare vanno nel file delle gare, quelli delle sedute di
 // allenamento (nomi dei .dvw della sezione Allenamenti) nel file degli allenamenti.
 async function salvaAssociazioniCondivise(testo) {
+  if (!PROFILO.scrive) return;
   let imp; try { imp = JSON.parse(testo); } catch (e) { return; }
   for (const allen of [false, true]) {
     const m = MONTAGGI[imp[allen ? 'allen_cartella_dvw' : 'cartella_dvw']];
@@ -746,6 +775,7 @@ function scaricaFile(nome, b64) {
 
 const ATTESA_SALVA = new Map();
 function salvaDato(path, testo) {
+  if (!PROFILO.scrive) { avvisoFlagNonSalvati(); return; }       // profilo senza «salva»: i dati restano solo nella pagina aperta
   const dir = path.substring(0, path.lastIndexOf('/')), nome = path.substring(path.lastIndexOf('/') + 1);
   const m = MONTAGGI[dir];
   if (!m || m.kind !== 'dvw') return;

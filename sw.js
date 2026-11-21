@@ -6,13 +6,21 @@
 let TOKEN = null;
 let API = 'https://www.googleapis.com/drive/v3';
 const META = new Map();
+// OSPITE (link temporaneo): niente token Google, ma la chiave API pubblica (e, se serve, le «chiavi di risorsa» dei file) che la pagina passa qui.
+let OSPITE = null;            // {key, claves: {idFile: chiave}} oppure null
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
+function impostaOspite(d) {
+  OSPITE = d && d.key ? { key: d.key, claves: d.claves || {} } : null;
+  if (!OSPITE) META.clear();
+}
+
 self.addEventListener('message', (e) => {
   const d = e.data || {};
   if (d.tipo === 'token') { TOKEN = d.token; if (d.api) API = d.api; }
+  if (d.tipo === 'ospite') { impostaOspite(d); if (d.api) API = d.api; }
 });
 
 async function chiediToken(rinnova) {
@@ -24,20 +32,36 @@ async function chiediToken(rinnova) {
       ch.port1.onmessage = (ev) => { clearTimeout(timer); ok(ev.data); };
       c.postMessage({ tipo: 'serve-token', rinnova: !!rinnova }, [ch.port2]);
     });
+    if (t && t.ospite && t.ospite.key) { impostaOspite(t.ospite); if (t.api) API = t.api; return TOKEN; }
     if (t && t.token) { TOKEN = t.token; if (t.api) API = t.api; return TOKEN; }
   }
   return TOKEN;
 }
 
-function intestazioni(t) {
+// Credenziali pronte? (altrimenti si chiedono alla pagina)
+async function credenziali(rinnova) {
+  if (OSPITE) return TOKEN;
+  return TOKEN || await chiediToken(rinnova);
+}
+
+function intestazioni(t, id) {
+  if (OSPITE) {
+    const rk = OSPITE.claves && OSPITE.claves[id];
+    return rk ? { 'X-Goog-Drive-Resource-Keys': id + '/' + rk } : {};
+  }
   return t && t !== 'mock' ? { Authorization: 'Bearer ' + t } : {};
+}
+
+// Con la chiave API pubblica dell'ospite l'indirizzo porta anche «key=…»
+function conChiave(url) {
+  return OSPITE ? url + (url.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(OSPITE.key) : url;
 }
 
 async function meta(id) {
   if (META.has(id)) return META.get(id);
-  let t = TOKEN || await chiediToken(false);
-  let r = await fetch(`${API}/files/${id}?fields=size,mimeType,name&supportsAllDrives=true`, { headers: intestazioni(t) });
-  if (r.status === 401) { t = await chiediToken(true); r = await fetch(`${API}/files/${id}?fields=size,mimeType,name&supportsAllDrives=true`, { headers: intestazioni(t) }); }
+  let t = await credenziali(false);
+  let r = await fetch(conChiave(`${API}/files/${id}?fields=size,mimeType,name&supportsAllDrives=true`), { headers: intestazioni(t, id) });
+  if (r.status === 401 && !OSPITE) { t = await chiediToken(true); r = await fetch(`${API}/files/${id}?fields=size,mimeType,name&supportsAllDrives=true`, { headers: intestazioni(t, id) }); }
   if (!r.ok) throw new Error('meta ' + r.status);
   const m = await r.json();
   m.size = Number(m.size);
@@ -67,12 +91,12 @@ async function streaming(req, id) {
     }
   }
   if (inizio >= tot) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${tot}` } });
-  const url = `${API}/files/${id}?alt=media&supportsAllDrives=true`;
-  let t = TOKEN || await chiediToken(false);
-  let r = await fetch(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(t)) });
-  if (r.status === 401 || r.status === 403) {
+  const url = conChiave(`${API}/files/${id}?alt=media&supportsAllDrives=true`);
+  let t = await credenziali(false);
+  let r = await fetch(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(t, id)) });
+  if ((r.status === 401 || r.status === 403) && !OSPITE) {
     t = await chiediToken(true);
-    r = await fetch(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(t)) });
+    r = await fetch(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(t, id)) });
   }
   if (!r.ok) return new Response('Errore Drive ' + r.status, { status: r.status });
   if (r.status === 200 && inizio > 0) {

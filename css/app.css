@@ -230,3 +230,35 @@ input[data-k="spinbox"] { padding: 1px 2px; }
 .score-tv.trasp { opacity: .72; }
 .score-tv.trasp .pt { background: transparent; color: #f5c542; }
 .score-tv .lg { width: 16px; height: 16px; margin-right: 5px; flex: none; }
+/* ---- link per ospiti (fase 7) ---- */
+#link-ospiti { white-space: nowrap; }
+.lo-dlg { width: min(780px, calc(100vw - 24px)); }
+.lo-corpo { gap: 14px; }
+.lo-sezione { display: flex; flex-direction: column; gap: 8px; }
+.lo-sezione h4 { margin: 0; font-size: 13px; }
+.lo-riga { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lo-riga > label { min-width: 190px; color: var(--tenue); font-size: 12px; }
+.lo-riga select, .lo-riga input[type=text], .lo-riga input[type=number], .lo-filtro { background: #0f172a; color: var(--testo); border: 1px solid #334155; border-radius: 4px; padding: 5px 8px; font-size: 12px; }
+.lo-nome { flex: 1; min-width: 220px; }
+.lo-ore { width: 70px; }
+.lo-gruppo { display: flex; flex-direction: column; gap: 6px; }
+.lo-pannello { border: 1px solid #334155; border-radius: 8px; padding: 8px; background: #0f172a; display: flex; flex-direction: column; gap: 6px; }
+.lo-pannello[hidden], .lo-esito[hidden] { display: none; }
+.lo-filtro { width: 100%; box-sizing: border-box; }
+.lo-azioni { display: flex; gap: 6px; flex-wrap: wrap; }
+.lo-azioni .btn-sec { padding: 4px 10px; }
+.lo-elenco { max-height: 190px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px 10px; font-size: 12px; }
+.lo-voce { display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; }
+.lo-voce[hidden] { display: none; }
+.lo-sintesi { margin: 0; font-weight: bold; font-size: 12px; }
+.lo-errore { margin: 0; color: #fca5a5; font-size: 12px; }
+.lo-ok { margin: 0; color: #86efac; font-size: 12px; font-weight: bold; }
+.lo-esito { border: 1px solid #166534; background: #052e16; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.lo-url { flex: 1; min-width: 260px; background: #0f172a; color: var(--testo); border: 1px solid #334155; border-radius: 4px; padding: 6px 8px; font-size: 12px; }
+.lo-link { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; border: 1px solid #334155; border-radius: 8px; padding: 8px 10px; background: #0f172a; font-size: 12px; }
+.lo-link.lo-scaduto, .lo-link.lo-revocato, .lo-link.lo-abbandonato { opacity: .6; }
+.lo-link-info { display: flex; flex-direction: column; gap: 2px; }
+.lo-link-elenco { display: flex; flex-direction: column; gap: 6px; }
+.ospite-fine { max-width: 460px; margin: 18vh auto 0; padding: 22px; text-align: center; background: #111a2e; border: 1px solid #3b4a63; border-radius: 12px; }
+.ospite-fine h2 { margin: 0 0 10px; }
+.ospite-fine p { margin: 0; line-height: 1.5; color: #cbd5e1; }

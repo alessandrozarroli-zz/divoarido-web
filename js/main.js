@@ -4,9 +4,15 @@ import { Drive, sceltaDrive, eVideo, idDaLink, filtraPartite, messaggioLogin, me
 import { DrivePC, sceltaPC, pcDisponibile } from './drivepc.js';
 import { Video } from './video.js';
 import * as UI from './ui.js';
-import { determinaProfilo, apriGestione } from './profili.js';
+import { determinaProfilo, apriGestione, leggiConfigProfili } from './profili.js';
+import { DriveOspite, tokenOspiteDaUrl, messaggioOspite } from './ospite.js';
+import { apriLinkOspiti, formatoData } from './linkospiti.js';
 
 const CFG = window.VPS_CONFIG || {};
+// MODALITA' OSPITE (link temporaneo, fase 7): l'indirizzo contiene #o=<codice>. Si lavora senza account Google e senza memoria nel browser:
+// niente localStorage (alla scadenza non resta nulla), niente scritture sul Drive.
+const TOKEN_OSPITE = tokenOspiteDaUrl();
+const MODO_OSPITE = !!TOKEN_OSPITE;
 // Profilo d'uso (completo / reader / personalizzato): lo decide determinaProfilo() dopo l'accesso. Fino ad allora tutto abilitato.
 let PROFILO = { chiave: 'completo', nome: 'Completo', funzioni: null, scrive: true, gestione: false };
 const $ = (s) => document.querySelector(s);
@@ -21,8 +27,8 @@ const MONTAGGI = caricaJson('vps_montaggi', {});
 // Video disponibili: percorso del segnaposto -> {id, name, mimeType}
 const INDICE_VIDEO = new Map();
 
-function caricaJson(k, def) { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? def; } catch (e) { return def; } }
-function salvaJson(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function caricaJson(k, def) { if (MODO_OSPITE) return def; try { return JSON.parse(localStorage.getItem(k) || 'null') ?? def; } catch (e) { return def; } }
+function salvaJson(k, v) { if (MODO_OSPITE) return; try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 // ------------------------------------------------------------------------------------------
 // schermata di avvio
@@ -42,14 +48,20 @@ async function avvio() {
     // Modalità: Google Drive oppure cartelle del PC (Chrome/Edge). Senza chiave Google si lavora sul PC.
     const soloPC = !CFG.GOOGLE_CLIENT_ID && !CFG.MOCK_DRIVE;
     const sceltaSalvata = localStorage.getItem('vps_modo') === 'pc' && pcDisponibile();
-    drive = (soloPC || sceltaSalvata) ? new DrivePC(CFG) : new Drive(CFG);
+    if (MODO_OSPITE) {
+      if (!CFG.OSPITI_URL) { erroreAvvio('Il servizio per gli ospiti non è ancora attivo: questo link non può essere usato.'); return; }
+      drive = new DriveOspite(CFG, TOKEN_OSPITE);
+      stato('Verifico il link…');
+      try { await drive.apri(); } catch (e) { erroreAvvio(messaggioOspite(e)); return; }
+    } else drive = (soloPC || sceltaSalvata) ? new DrivePC(CFG) : new Drive(CFG);
     // Se il programma (.py) sta sul Drive, Python si prepara subito ma il programma si legge
     // dopo l'accesso; altrimenti il caricamento parte insieme al login.
     let accesso;
     const loginFatto = new Promise((ok) => { accesso = ok; });
     const idProgramma = idDaLink(CFG.PROGRAMMA_DRIVE || '');
-    const programma = idProgramma ? async () => {
+    const programma = (idProgramma || MODO_OSPITE) ? async () => {
       await loginFatto;
+      if (drive.ospite) return await drive.programma();      // l'ospite riceve il programma dal servizio (non ha accesso al Drive)
       if (drive.pc) return new Uint8Array(await fetch('engine/volley.py', { cache: 'no-cache' }).then((r) => r.arrayBuffer()));
       return new Uint8Array(await drive.scarica(idProgramma));
     } : null;
@@ -60,10 +72,10 @@ async function avvio() {
       await richiediLogin();
     }
     accesso();
-    $('#cambia-modo').hidden = !CFG.GOOGLE_CLIENT_ID;
+    $('#cambia-modo').hidden = !CFG.GOOGLE_CLIENT_ID || MODO_OSPITE;
     $('#cambia-modo').textContent = drive.pc ? '☁ Passa a Google Drive' : '💻 Usa le cartelle del PC';
     $('#cambia-modo').onclick = () => { try { localStorage.setItem('vps_modo', drive.pc ? 'google' : 'pc'); } catch (e) {} location.reload(); };
-    await drive.utenteCorrente().then((u) => { $('#utente').textContent = drive.pc ? 'Cartelle del PC' : (u.emailAddress || u.displayName || ''); }).catch(() => {});
+    await drive.utenteCorrente().then((u) => { $('#utente').textContent = drive.ospite ? 'Ospite' : drive.pc ? 'Cartelle del PC' : (u.emailAddress || u.displayName || ''); }).catch(() => {});
     if (!drive.pc) {
       passaTokenSW();
       drive.onToken = () => passaTokenSW();
@@ -90,17 +102,93 @@ async function avvio() {
 // Profilo d'uso: si decide DOPO l'accesso a Google e PRIMA che il programma apra la finestra principale (cosi' i pulsanti non abilitati non compaiono).
 async function applicaProfilo() {
   stato('Verifico il tuo profilo…');
-  try { PROFILO = await determinaProfilo({ drive, CFG, motore }); } catch (e) { console.warn('profilo', e); }
+  try { PROFILO = drive.ospite ? await profiloOspite() : await determinaProfilo({ drive, CFG, motore }); } catch (e) { console.warn('profilo', e); }
   const f = PROFILO.funzioni;
   await motore.chiama('imposta_profilo', f == null ? '' : JSON.stringify({ nome: PROFILO.nome, funzioni: f }));
   const ind = $('#profilo-ind');
   if (ind) {
-    ind.textContent = PROFILO.chiave === 'completo' && !PROFILO.simulato ? '' : `Profilo: ${PROFILO.nome}${PROFILO.simulato ? ' (prova)' : ''}`;
+    ind.textContent = PROFILO.ospite ? `Ospite · accesso fino al ${formatoData(drive.scadenza)}`
+      : PROFILO.chiave === 'completo' && !PROFILO.simulato ? '' : `Profilo: ${PROFILO.nome}${PROFILO.simulato ? ' (prova)' : ''}`;
     ind.title = PROFILO.incerto ? 'Non sono riuscito a verificare il tuo profilo: lavori con quello base. Ricarica la pagina (F5) per riprovare.' : '';
   }
   const g = $('#gest-profili');
   if (g) { g.hidden = !PROFILO.gestione; g.onclick = () => apriGestione({ drive, CFG, profilo: PROFILO, messaggio: (t) => avviso(t) }); }
   if (PROFILO.incerto) setTimeout(() => avviso('Non sono riuscito a verificare il tuo profilo: lavori con quello base. Ricarica la pagina (F5) per riprovare.'), 1500);
+  if (drive.ospite) avviaControlloOspite(); else preparaLinkOspiti();
+}
+
+// ------------------------------------------------------------------------------------------
+// ospiti (fase 7): profilo dell'ospite, controllo della scadenza e pulsante «Link ospiti» del proprietario
+// ------------------------------------------------------------------------------------------
+// Funzioni che l'ospite non ha mai, qualunque sia il profilo del link: servono un accesso Google o scrivono sul Drive.
+const FUNZIONI_NO_OSPITE = ['cartelle', 'associa_video', 'loghi', 'salva'];
+async function profiloOspite() {
+  let elenco = [];
+  try { elenco = JSON.parse(await motore.chiama('profilo_funzioni')); } catch (e) { console.warn('profilo_funzioni', e); }
+  const tutte = elenco.map((x) => x[0]);
+  const f = ((drive.info.profilo && drive.info.profilo.funzioni) || []).filter((k) => tutte.includes(k) && !FUNZIONI_NO_OSPITE.includes(k));
+  return { chiave: 'ospite', nome: 'Ospite', funzioni: elenco.length ? f : null, scrive: false, gestione: false, proprietario: false, incerto: false,
+           ospite: true, tutte, elenco, config: null, idConfig: null, personalizzati: [] };
+}
+
+function chiudiOspite(testo) {
+  try { for (const p of (video && video.players ? video.players.values() : [])) { if (p.video) { p.video.pause(); p.video.removeAttribute('src'); p.video.load(); } } } catch (e) {}
+  try { navigator.serviceWorker?.controller?.postMessage({ tipo: 'ospite', key: '', claves: {} }); } catch (e) {}
+  window.onbeforeunload = null;
+  document.body.className = '';
+  document.body.replaceChildren();
+  const d = document.createElement('div'); d.className = 'ospite-fine';
+  const t = document.createElement('h2'); t.textContent = 'Accesso terminato';
+  const p = document.createElement('p'); p.textContent = testo;
+  d.append(t, p); document.body.append(d);
+}
+
+function avviaControlloOspite() {
+  let fermo = false;
+  const ferma = (testo) => { if (fermo) return; fermo = true; chiudiOspite(testo); };
+  setInterval(() => { if (drive.scaduto()) ferma(messaggioOspite({ codice: 'link_scaduto' })); }, 15000);
+  setInterval(async () => {                          // ogni 2 minuti: il link potrebbe essere stato annullato dal proprietario
+    try { await drive.controlla(); }
+    catch (e) { if (e && /^link_/.test(e.codice || '')) ferma(messaggioOspite(e)); }
+  }, 120000);
+}
+
+// Il pulsante «Link ospiti» lo vede solo il proprietario (chi possiede la cartella dei dati sul Drive) e solo se il servizio e' attivo
+async function eProprietario() {
+  if (CFG.MODALITA_LOCALE || drive.mock) return new URLSearchParams(location.search).get('ospiti') === '1';        // solo per le prove
+  const id = CFG.CARTELLA_DATI || CFG.CARTELLA_PROFILI;
+  if (!id) return false;
+  try { const m = await drive.get('/files/' + id, { fields: 'ownedByMe', supportsAllDrives: true }); return !!m.ownedByMe; } catch (e) { return false; }
+}
+
+async function preparaLinkOspiti() {
+  const b = $('#link-ospiti');
+  if (!b || !CFG.OSPITI_URL || drive.pc || drive.ospite) return;
+  if (!(await eProprietario())) return;
+  b.hidden = false;
+  b.onclick = async () => {
+    b.disabled = true;
+    try {
+      const elenco = PROFILO.elenco || [];
+      const profili = [{ id: 'reader', nome: 'Reader', funzioni: elenco.filter((e) => e[2]).map((e) => e[0]) }];
+      try { for (const p of (await leggiConfigProfili(drive, CFG)).cfg.profili) profili.push({ id: p.id, nome: p.nome, funzioni: p.funzioni || [] }); } catch (e) { console.warn('profili personalizzati non letti', e); }
+      const gare = await raccogliGare();
+      apriLinkOspiti({ drive, CFG, elementi: () => gare, profili, messaggio: (t) => avviso(t) });
+    } finally { b.disabled = false; }
+  };
+}
+
+// Le gare e le sedute caricate (con il loro video, se abbinato): servono a scegliere cosa mostrare con un link
+async function raccogliGare() {
+  const imp = await leggiImpostazioniMotore();
+  const vm = imp.video_map || {};
+  const out = [];
+  for (const [, d] of DVW_ID) {
+    const v = INDICE_VIDEO.get(vm[d.nome]);
+    out.push({ n: d.nome, d: d.id, s: d.allen ? 'a' : 'g', v: v ? v.id : null, r: v ? (v.rel || v.name) : '', m: v ? (v.mimeType || '') : '', z: v ? Number(v.size) || 0 : 0 });
+  }
+  out.sort((a, b) => (a.s === b.s ? 0 : a.s === 'g' ? -1 : 1) || a.n.localeCompare(b.n));
+  return out;
 }
 
 let avvisoFlagFatto = false;
@@ -171,7 +259,7 @@ async function registraServiceWorker() {
       if (e.data && e.data.tipo === 'serve-token') {
         let t = null;
         try { t = e.data.rinnova ? await drive.login('') : await drive.token(); } catch (err) { mostraRinnovo(); }
-        e.ports[0]?.postMessage({ token: t, api: apiAssoluta() });
+        e.ports[0]?.postMessage({ token: t, api: apiAssoluta(), ospite: drive.ospite ? drive.datiVideoSW() : null });
       }
     });
   } catch (e) { console.warn('Service worker non disponibile', e); }
@@ -182,6 +270,11 @@ function apiAssoluta() { return new URL(drive.api, location.href).href.replace(/
 async function passaTokenSW() {
   if (drive.pc) return;
   const reg = await navigator.serviceWorker?.ready;
+  if (drive.ospite) {            // l'ospite non ha un token Google: il lettore dei video usa la chiave API pubblica
+    const m = Object.assign({ tipo: 'ospite', api: apiAssoluta() }, drive.datiVideoSW());
+    reg?.active?.postMessage(m); navigator.serviceWorker?.controller?.postMessage(m);
+    return;
+  }
   const t = await drive.token().catch(() => null);
   reg?.active?.postMessage({ tipo: 'token', token: t, api: apiAssoluta() });
   navigator.serviceWorker?.controller?.postMessage({ tipo: 'token', token: t, api: apiAssoluta() });
@@ -190,6 +283,7 @@ async function passaTokenSW() {
 function risolviVideo(path) {
   const v = INDICE_VIDEO.get(path);
   if (!v) return null;
+  if (drive.ospite && drive.scaduto()) return null;
   // cartelle del PC: il video si legge dal disco tramite un indirizzo blob: (risposta asincrona)
   if (drive.pc) return drive.urlVideo(v.id).then((url) => ({ url, nome: v.name }));
   // prova sul PC (avvia_locale): il server locale risponde già a pezzi (Range), non serve il service worker
@@ -392,7 +486,10 @@ async function dialogoFileVideo(opts) {
 }
 
 const CACHE_DVW = 'vps-dvw-v1';
+// Partite e sedute caricate: «g|nome» -> {nome, id, allen}. Servono al proprietario per scegliere cosa mostrare con un link per ospiti.
+const DVW_ID = new Map();
 async function scaricaConCache(f) {
+  if (drive.ospite) return new Uint8Array(await drive.scarica(f.id));         // l'ospite non lascia nulla nella memoria del browser
   const chiave = new URL(`./__cache_dvw__/${f.id}/${encodeURIComponent(f.modifiedTime || '')}`, location.href).href;
   let cache = null;
   try { cache = await caches.open(CACHE_DVW); } catch (e) {}
@@ -422,6 +519,7 @@ async function montaDvw(cartella, silenzioso, allen) {
     elencoDvw = elencoDvw.filter((f) => f.name.includes('@'));      // gare e sedute: solo i file con @ nel nome (gli altri non sono ancora attendibili per lo studio)
     const { partite: dvw, doppi, allenamenti } = filtraPartite(elencoDvw, { includiAllenamenti: !!allen || !!CFG.INCLUDI_ALLENAMENTI });
     if (allen) for (const f of dvw) NOMI_ALLEN.add(f.name);
+    for (const f of dvw) DVW_ID.set((allen ? 'a|' : 'g|') + f.name, { nome: f.name, id: f.id, allen: !!allen });
     if (doppi.length) console.warn('Partite con lo stesso nome in più sottocartelle, ignorate:', doppi);
     const note = [];
     if (allenamenti.length) note.push(`${allenamenti.length} sedute di allenamento non incluse (nel web non c'è ancora la sezione Allenamenti)`);
@@ -468,7 +566,7 @@ async function montaVideo(cartella, silenzioso, allen) {
     const lista = [];
     for (const v of vids) {
       const p = path + '/' + v.rel.split('/').map(nomeSicuro).join('/');
-      INDICE_VIDEO.set(p, { id: v.id, name: v.name, mimeType: v.mimeType });
+      INDICE_VIDEO.set(p, { id: v.id, name: v.name, mimeType: v.mimeType, size: v.size, rel: v.rel });
       lista.push(p);
     }
     await motore.chiama('fs_svuota', path);
@@ -488,7 +586,7 @@ async function ripristinaImpostazioni() {
   try { imp = testo ? JSON.parse(testo) : {}; } catch (e) { imp = {}; }
   const daMontare = [];
   // se sono cambiate le cartelle predefinite (config.js: REV_CARTELLE_PREDEFINITE) si dimenticano, una sola volta, quelle ricordate
-  if (CFG.REV_CARTELLE_PREDEFINITE && !(drive && drive.pc) && !CFG.MODALITA_LOCALE) {
+  if (CFG.REV_CARTELLE_PREDEFINITE && !(drive && drive.pc) && !CFG.MODALITA_LOCALE && !MODO_OSPITE) {
     try {
       if (localStorage.getItem('vps_predef') !== String(CFG.REV_CARTELLE_PREDEFINITE)) {
         delete imp.cartella_dvw; delete imp.cartella_video; delete imp.allen_cartella_dvw; delete imp.allen_cartella_video;
@@ -505,7 +603,7 @@ async function ripristinaImpostazioni() {
     else if (p && MONTAGGI[p]) delete imp[k];
   }
   // cartelle proposte al primo avvio (solo con il Google Drive vero: non hanno senso con le cartelle del PC)
-  const conDrive = !(drive && drive.pc) && (!CFG.MODALITA_LOCALE || !!CFG.PROVA_PREDEFINITE_LOCALI);
+  const conDrive = !(drive && drive.pc) && (MODO_OSPITE || !CFG.MODALITA_LOCALE || !!CFG.PROVA_PREDEFINITE_LOCALI);
   if (conDrive && !imp.cartella_dvw && CFG.CARTELLA_DVW_PREDEFINITA) daMontare.push([null, { id: CFG.CARTELLA_DVW_PREDEFINITA, name: CFG.NOME_CARTELLA_DVW || 'Partite', kind: 'dvw' }]);
   if (conDrive && !imp.cartella_video && CFG.CARTELLA_VIDEO_PREDEFINITA) daMontare.push([null, { id: CFG.CARTELLA_VIDEO_PREDEFINITA, name: CFG.NOME_CARTELLA_VIDEO || 'Video', kind: 'video' }]);
   if (conDrive && !imp.allen_cartella_dvw && CFG.CARTELLA_ALLEN_DVW_PREDEFINITA) daMontare.push([null, { id: CFG.CARTELLA_ALLEN_DVW_PREDEFINITA, name: CFG.NOME_CARTELLA_ALLEN_DVW || 'Allenamenti', kind: 'dvw', sez: 'allen' }]);
@@ -519,7 +617,8 @@ async function ripristinaImpostazioni() {
     } catch (e) {
       console.warn('cartella non più disponibile', m, e);
       // la cartella degli allenamenti proposta in automatico, se non è condivisa con questo account, semplicemente non compare (niente avviso)
-      if (!(allen && !p && /404|403|not found|non trovat|forbidden|permission|insufficient/i.test(String((e && e.message) || e)))) avviso(messaggioCartella(e, m.name));
+      // (lo stesso per l'ospite: le sezioni non incluse nel suo link semplicemente non compaiono)
+      if (!MODO_OSPITE && !(allen && !p && /404|403|not found|non trovat|forbidden|permission|insufficient/i.test(String((e && e.message) || e)))) avviso(messaggioCartella(e, m.name));
     }
   }
   // video scelti a mano in passato

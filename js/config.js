@@ -39,6 +39,10 @@ window.VPS_CONFIG = {
   CARTELLA_ALLEN_VIDEO_PREDEFINITA: '1nh70WdXAFKGWXk3UG5q9genQddlIFB16',
   NOME_CARTELLA_ALLEN_VIDEO: 'Allenamenti - video',
 
+  // LINK PER OSPITI (fase 7): indirizzo del servizio Google Apps Script (ospiti\Code.gs, «Distribuisci» > «Applicazione web»), finisce con /exec.
+  // Vuoto = link per ospiti NON attivi (nessun pulsante «Link ospiti», e i link gia' dati non funzionano).
+  OSPITI_URL: '',
+
   // PROFILI D'USO (completo / reader / personalizzati, vedi js/profili.js). MARCATORE_COMPLETO = ID della cartella «Funzioni complete»
   // (la vede solo chi ha il profilo completo; vuoto = profili NON attivi, tutti vedono tutto come prima). CARTELLA_PROFILI = ID della
   // cartella del proprietario in cui la pagina «Gestione profili» crea le cartelle-marcatore dei profili personalizzati.
@@ -52,5 +56,5 @@ window.VPS_CONFIG = {
   // Non modificare (versioni dei componenti)
   PYODIDE_URL: 'https://cdn.jsdelivr.net/pyodide/v0.28.2/full/',
   REPORTLAB_WHEEL: 'reportlab-5.0.1-py3-none-any.whl',
-  VERSIONE: '1.0.27-20261121-1918',
+  VERSIONE: '1.0.27-20261121-2057',
 };

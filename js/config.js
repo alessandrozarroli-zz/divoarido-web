@@ -5,11 +5,11 @@ window.VPS_CONFIG = {
   GOOGLE_CLIENT_ID: '351564478558-bu2q0h5jetbt5fk51v5lthh89hgpq9jk.apps.googleusercontent.com',
 
   // Consigliato se la pagina è pubblicata su Internet: link (o ID) del file
-  // "VOLLEY PRO SUITE VIDEO.py" caricato sul Google Drive. Così il programma lo legge solo chi
+  // "DIVOARIDO.py" caricato sul Google Drive. Così il programma lo legge solo chi
   // accede con Google e ha accesso a quel file; per aggiornarlo basta sostituire il file sul Drive
   // (tasto destro > Gestisci versioni > Carica nuova versione, così il link resta lo stesso).
   // Vuoto = usa il file engine/volley.py che sta accanto alla pagina.
-  PROGRAMMA_DRIVE: '18thrQY5rO6YIz_YPI9JSnJ9KdH3YEHhg',   // «DivoArido / programma / VOLLEY PRO SUITE VIDEO.py» sul Drive
+  PROGRAMMA_DRIVE: '18thrQY5rO6YIz_YPI9JSnJ9KdH3YEHhg',   // «DivoArido / programma / DIVOARIDO.py» sul Drive
 
   // Facoltativo: cartelle del Drive proposte al primo avvio a chi non ne ha ancora scelte.
   // Si incolla l'ID (la parte finale del link della cartella: drive.google.com/drive/folders/QUESTO_ID)
@@ -46,5 +46,5 @@ window.VPS_CONFIG = {
   // Non modificare (versioni dei componenti)
   PYODIDE_URL: 'https://cdn.jsdelivr.net/pyodide/v0.28.2/full/',
   REPORTLAB_WHEEL: 'reportlab-5.0.1-py3-none-any.whl',
-  VERSIONE: '1.0.25-20261120-2302',
+  VERSIONE: '1.0.26-20261121-1211',
 };

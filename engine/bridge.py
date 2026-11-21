@@ -56,7 +56,8 @@ def prepara(root=''):
     STATO['root'] = root
     htk.OUT_DIR = root + '/vps_out'
     os.environ['LOCALAPPDATA'] = root + '/appdata'
-    os.makedirs(root + '/appdata/VolleyProSuite', exist_ok=True)
+    os.makedirs(root + '/appdata/DivoArido', exist_ok=True)
+    os.makedirs(root + '/appdata/VolleyProSuite', exist_ok=True)      # nome usato fino al 21/11/2026: serve finche' pagina e programma possono essere di versioni diverse
     htk.reset()
     htk.installa()
     if 'volley' in sys.modules:
@@ -297,7 +298,7 @@ def _stato_dati():
     cart = _cartella_dati(); out = {}
     if cart and os.path.isdir(cart):
         for n in os.listdir(cart):
-            if n.startswith('VolleyProSuite_') and n.endswith('.json') and 'backup' not in n:
+            if n.startswith(('DivoArido_', 'VolleyProSuite_')) and n.endswith('.json') and 'backup' not in n:
                 p = os.path.join(cart, n)
                 try: st = os.stat(p); out[p] = (st.st_mtime_ns, st.st_size)
                 except OSError: pass

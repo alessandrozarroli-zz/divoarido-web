@@ -249,7 +249,22 @@ async function prossimoDialogo() {
 const DOVE = () => ((CFG.MODALITA_LOCALE || (drive && drive.pc)) ? ' — cartelle del PC' : ' — Google Drive');
 // File di dati scritti dal programma nella cartella delle partite (flag, traiettorie...): si copiano
 // all'apertura e si riscrivono nella cartella vera (Drive o PC) ogni volta che il programma li modifica.
-const DATI_CARTELLA = /^VolleyProSuite_[^/]*\.json$/i;
+// (dal 21/11/2026 i file si chiamano DivoArido_*.json: i vecchi VolleyProSuite_*.json si leggono ancora e il programma li rinomina da solo)
+const DATI_CARTELLA = /^(?:DivoArido|VolleyProSuite)_[^/]*\.json$/i;
+// Cartella dei dati del programma nel file system del motore: dal 21/11/2026 si chiama DivoArido (prima VolleyProSuite). Si scrivono entrambe
+// finché il programma sul Drive e la pagina possono essere di versioni diverse (cache del browser ~10 minuti); si legge prima la nuova.
+const DIR_DATI = () => motore.root + '/appdata/DivoArido';
+const DIR_DATI_VECCHIA = () => motore.root + '/appdata/VolleyProSuite';
+async function leggiImpostazioniMotore() {
+  for (const dir of [DIR_DATI(), DIR_DATI_VECCHIA()]) {
+    try { return JSON.parse(decodeURIComponent(escape(atob(await motore.chiama('fs_leggi', dir + '/impostazioni.json'))))); } catch (e) {}
+  }
+  return {};
+}
+async function scriviImpostazioniMotore(imp) {
+  const testo = JSON.stringify(imp, null, 1);
+  for (const dir of [DIR_DATI(), DIR_DATI_VECCHIA()]) await motore.chiama('fs_scrivi_testo', dir + '/impostazioni.json', testo);
+}
 const FILE_DATI = new Map();   // percorso nel motore -> {cartellaId, nome, id}
 
 // Cartella dove il programma legge e scrive i propri dati (flag, traiettorie, abbinamenti partita↔video). Se in config.js c'è
@@ -293,13 +308,11 @@ async function iniettaAssociazioni() {
   const haAssoc = Object.keys(ASSOC.perCartella).length && INDICE_VIDEO.size;
   const haImpDrive = IMPD.pronto && !IMPD.applicato;
   if (!haAssoc && !haImpDrive) return;
-  const path = motore.root + '/appdata/VolleyProSuite/impostazioni.json';
-  let imp = {};
-  try { imp = JSON.parse(decodeURIComponent(escape(atob(await motore.chiama('fs_leggi', path))))); } catch (e) { imp = {}; }
+  const imp = await leggiImpostazioniMotore();
   const prima = JSON.stringify(imp);
   if (haAssoc) await applicaAssociazioniCondivise(imp);
   await applicaImpostazioniDrive(imp);
-  if (JSON.stringify(imp) !== prima) await motore.chiama('fs_scrivi_testo', path, JSON.stringify(imp, null, 1));
+  if (JSON.stringify(imp) !== prima) await scriviImpostazioniMotore(imp);
 }
 
 // La finestra di scelta del video si apre già nella cartella dei video (es. Dvs_Video, che sfogliando da «Il mio Drive» non si
@@ -402,7 +415,7 @@ async function montaDvw(cartella, silenzioso, allen) {
       try { figliDati = await drive.figli(idDati); }
       catch (e) { console.warn('cartella dei dati non letta', e); figliDati = []; if (!silenzioso) avviso('Non riesco a leggere la cartella dei dati del programma (flag e abbinamenti): ' + messaggioCartella(e, 'dei dati')); }
     }
-    const rxDati = allen ? new RegExp('^' + PREF_DATI_ALLEN + '(VolleyProSuite_[^/]*\\.json)$', 'i') : DATI_CARTELLA;
+    const rxDati = allen ? new RegExp('^' + PREF_DATI_ALLEN + '((?:DivoArido|VolleyProSuite)_[^/]*\\.json)$', 'i') : DATI_CARTELLA;
     for (const f of figliDati.filter((x) => rxDati.test(x.name) && !/backup/i.test(x.name))) {
       const locale = allen ? f.name.slice(PREF_DATI_ALLEN.length) : f.name;
       try {
@@ -491,10 +504,7 @@ async function ripristinaImpostazioni() {
   const vm = imp.video_map || {};
   await applicaAssociazioniCondivise(imp);
   await applicaImpostazioniDrive(imp);
-  if (Object.keys(imp).length || Object.keys(vm).length) {
-    const dir = motore.root + '/appdata/VolleyProSuite';
-    await motore.chiama('fs_scrivi_testo', dir + '/impostazioni.json', JSON.stringify(imp, null, 1));
-  }
+  if (Object.keys(imp).length || Object.keys(vm).length) await scriviImpostazioniMotore(imp);
   programmaSalvataggioImp(imp);      // prima volta: copia sul Drive quanto era già nel browser
 }
 
@@ -503,17 +513,23 @@ async function ripristinaImpostazioni() {
 // ------------------------------------------------------------------------------------------
 // Ogni utente salva i propri abbinamenti in "volleyprosuite_video (email).json" nella cartella
 // delle partite; leggendo si uniscono quelli di tutti (il proprio file ha la precedenza).
-const PREF_ASSOC = 'volleyprosuite_video';
-const PREF_ASSOC_ALLEN = 'volleyprosuite_allen_video';       // sezione Allenamenti: file proprio (stessa cartella dati, nome diverso)
+// (dal 21/11/2026 i file si chiamano «divoarido_video (email).json»; i vecchi «volleyprosuite_video (email).json» si leggono ancora e restano dove sono)
+const PREF_ASSOC = 'divoarido_video';
+const PREF_ASSOC_ALLEN = 'divoarido_allen_video';       // sezione Allenamenti: file proprio (stessa cartella dati, nome diverso)
+const PREF_ASSOC_VECCHIO = 'volleyprosuite_video';
+const PREF_ASSOC_ALLEN_VECCHIO = 'volleyprosuite_allen_video';
 const ASSOC = { perCartella: {} };   // id cartella dvw -> {fileId (mio), map: {nome dvw: {id, name}}}
 
-function mioNomeAssoc(allen) { return `${allen ? PREF_ASSOC_ALLEN : PREF_ASSOC} (${(drive.utente && drive.utente.emailAddress) || localStorage.getItem('vps_email') || 'utente'}).json`; }
+function emailAssoc() { return (drive.utente && drive.utente.emailAddress) || localStorage.getItem('vps_email') || 'utente'; }
+function mioNomeAssoc(allen) { return `${allen ? PREF_ASSOC_ALLEN : PREF_ASSOC} (${emailAssoc()}).json`; }
+function mioNomeAssocVecchio(allen) { return `${allen ? PREF_ASSOC_ALLEN_VECCHIO : PREF_ASSOC_VECCHIO} (${emailAssoc()}).json`; }
 
 async function leggiAssociazioniCondivise(cartella, path, figli, allen) {
-  const mio = mioNomeAssoc(allen);
-  const pref = (allen ? PREF_ASSOC_ALLEN : PREF_ASSOC) + ' (';
-  const files = figli.filter((x) => x.name.startsWith(pref) && x.name.endsWith('.json'))
-    .sort((a, b) => (a.name === mio) - (b.name === mio) || String(a.modifiedTime).localeCompare(String(b.modifiedTime)));
+  const mio = mioNomeAssoc(allen), mioVecchio = mioNomeAssocVecchio(allen);
+  const prefissi = [(allen ? PREF_ASSOC_ALLEN : PREF_ASSOC) + ' (', (allen ? PREF_ASSOC_ALLEN_VECCHIO : PREF_ASSOC_VECCHIO) + ' ('];
+  const eMio = (n) => n === mio || n === mioVecchio;          // il proprio file (nuovo o vecchio) ha la precedenza sugli altri
+  const files = figli.filter((x) => prefissi.some((p) => x.name.startsWith(p)) && x.name.endsWith('.json'))
+    .sort((a, b) => eMio(a.name) - eMio(b.name) || (a.name === mio) - (b.name === mio) || String(a.modifiedTime).localeCompare(String(b.modifiedTime)));
   const map = {};
   let mioId = null;
   for (const f of files) {
@@ -553,7 +569,8 @@ const IMPD = { pronto: false, applicato: false, cartellaId: null, fileId: null, 
 function emailImp() { return (drive.utente && drive.utente.emailAddress) || localStorage.getItem('vps_email') || 'utente'; }
 function nomeFileImp() { return `${PREF_IMP} (${emailImp()}).json`; }
 function prefLogo() { return `divoarido_logo (${emailImp()}) `; }
-const DIR_LOGHI = () => motore.root + '/appdata/VolleyProSuite/loghi/';
+const DIR_LOGHI = () => DIR_DATI() + '/loghi/';
+const DIR_LOGHI_VECCHIA = () => DIR_DATI_VECCHIA() + '/loghi/';      // si scrive anche qui finché possono girare programma e pagina di versioni diverse
 const daB64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 const aB64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
 function selezioneImp(imp) {
@@ -595,6 +612,7 @@ async function applicaImpostazioniDrive(imp) {
     try {
       const bytes = new Uint8Array(await drive.scarica(id));
       await motore.scriviFile(DIR_LOGHI() + nome, bytes);
+      await motore.scriviFile(DIR_LOGHI_VECCHIA() + nome, bytes);
       IMPD.logoB64[nome] = aB64(bytes);
     } catch (e) { console.warn('logo non letto dal Drive', nome, e); }
   }
@@ -622,7 +640,7 @@ async function salvaImpostazioniDrive(sel, f) {
       if (!id) throw new Error('logo ' + nome + ' non caricato');
       IMPD.logoIds[nome] = id; IMPD.logoB64[nome] = b64;
     }
-    const id = await drive.caricaJson(IMPD.cartellaId, nomeFileImp(), Object.assign({ programma: 'Volley Pro Suite', aggiornato: new Date().toISOString() }, sel), IMPD.fileId);
+    const id = await drive.caricaJson(IMPD.cartellaId, nomeFileImp(), Object.assign({ programma: 'DivoArido', aggiornato: new Date().toISOString() }, sel), IMPD.fileId);
     if (!id) throw new Error('file delle impostazioni non caricato');
     IMPD.fileId = id; IMPD.ultimo = f;
   } catch (e) {
@@ -652,7 +670,7 @@ async function salvaAssociazioniCondivise(testo) {
     clearTimeout(salvataggioAssoc[k]);
     salvataggioAssoc[k] = setTimeout(async () => {
       try {
-        const id = await drive.caricaJson(cartellaDati(m), mioNomeAssoc(allen), { programma: 'Volley Pro Suite', aggiornato: new Date().toISOString(), video: a.map }, a.fileId);
+        const id = await drive.caricaJson(cartellaDati(m), mioNomeAssoc(allen), { programma: 'DivoArido', aggiornato: new Date().toISOString(), video: a.map }, a.fileId);
         if (id) a.fileId = id;
       } catch (e) { console.warn('associazioni non salvate sul Drive', e); }
     }, 1500);

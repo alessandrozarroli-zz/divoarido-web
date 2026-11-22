@@ -120,11 +120,12 @@ export function apriLinkOspiti({ drive, CFG, elementi, profili, messaggio }) {
   nuovo.append(lVideo);
 
   const sintesi = el('p', 'lo-sintesi');
+  const avvisoGrandi = el('p', 'lo-errore');
   const errore = el('p', 'lo-errore');
   const avanzamento = el('p', 'gp-nota');
   const esito = el('div', 'lo-esito'); esito.hidden = true;
   const bCrea = el('button', 'btn-pri', '🔗 Crea il link');
-  nuovo.append(sintesi, errore, avanzamento, bCrea, esito);
+  nuovo.append(sintesi, avvisoGrandi, errore, avanzamento, bCrea, esito);
 
   const ore = () => { const v = Number(selDurata.value); return v === 0 ? Math.round(Number(altro.value) * 100) / 100 : v; };
   const scelti = () => sceltaElementi(tutti, stato);
@@ -133,6 +134,8 @@ export function apriLinkOspiti({ drive, CFG, elementi, profili, messaggio }) {
     const nG = e.filter((g) => g.s !== 'a').length, nA = e.filter((g) => g.s === 'a').length, nV = e.filter((g) => g.v).length;
     const peso = e.reduce((s, g) => s + (g.v ? Number(g.z) || 0 : 0), 0);
     sintesi.textContent = e.length ? `Il link darà accesso a ${nG} gare e ${nA} allenamenti${stato.video ? `, con ${nV} video${peso ? ' (' + formatoDimensione(peso) + ')' : ''}` : ', senza video'}.` : 'Nessuna gara scelta.';
+    const grandi = stato.video ? e.filter((g) => g.v && Number(g.z) > 1.5 * 1073741824).length : 0;
+    avvisoGrandi.textContent = grandi ? `⚠️  video superano 1,5 GB: Google limita quanto può essere scaricato da un file condiviso con un link e, dopo alcune visioni, può bloccarlo per qualche ora. Per più ospiti o più visioni sono meglio le copie leggere (720p).` : '';
     bCrea.disabled = !e.length;
   }
   riepilogo();

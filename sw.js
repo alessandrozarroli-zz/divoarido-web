@@ -8,12 +8,17 @@ let API = 'https://www.googleapis.com/drive/v3';
 const META = new Map();
 // OSPITE (link temporaneo): niente token Google, ma la chiave API pubblica (e, se serve, le «chiavi di risorsa» dei file) che la pagina passa qui.
 let OSPITE = null;            // {key, claves: {idFile: chiave}} oppure null
+// Per l'ospite Google conta come «scaricato» tutto cio' che si CHIEDE (anche se poi si legge un pezzo solo): una richiesta «dal secondo X fino alla fine»
+// di un video da 4 GB esaurisce in fretta il limite di scarico del file. Quindi a Google si chiede sempre un pezzo alla volta (8 MB); il browser continua da solo.
+let PEZZO_OSPITE = 8 * 1024 * 1024;
+let ULTIMO_ERRORE = null;     // ultimo rifiuto di Google (per spiegare all'utente perche' un video non parte)
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
 function impostaOspite(d) {
   OSPITE = d && d.key ? { key: d.key, claves: d.claves || {} } : null;
+  if (d && d.pezzo > 0) PEZZO_OSPITE = d.pezzo;
   if (!OSPITE) META.clear();
 }
 
@@ -62,7 +67,12 @@ async function meta(id) {
   let t = await credenziali(false);
   let r = await fetch(conChiave(`${API}/files/${id}?fields=size,mimeType,name&supportsAllDrives=true`), { headers: intestazioni(t, id) });
   if (r.status === 401 && !OSPITE) { t = await chiediToken(true); r = await fetch(`${API}/files/${id}?fields=size,mimeType,name&supportsAllDrives=true`, { headers: intestazioni(t, id) }); }
-  if (!r.ok) throw new Error('meta ' + r.status);
+  if (!r.ok) {
+    let motivo = '';
+    try { const j = JSON.parse(await r.text()); motivo = (j.error && j.error.message) || ''; } catch (e) {}
+    ULTIMO_ERRORE = { id, status: r.status, motivo, quando: Date.now() };
+    throw new Error('meta ' + r.status);
+  }
   const m = await r.json();
   m.size = Number(m.size);
   META.set(id, m);
@@ -91,6 +101,7 @@ async function streaming(req, id) {
     }
   }
   if (inizio >= tot) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${tot}` } });
+  if (OSPITE) fine = Math.min(fine, inizio + PEZZO_OSPITE - 1);
   const url = conChiave(`${API}/files/${id}?alt=media&supportsAllDrives=true`);
   let t = await credenziali(false);
   let r = await fetch(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(t, id)) });
@@ -98,7 +109,12 @@ async function streaming(req, id) {
     t = await chiediToken(true);
     r = await fetch(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(t, id)) });
   }
-  if (!r.ok) return new Response('Errore Drive ' + r.status, { status: r.status });
+  if (!r.ok) {
+    let motivo = '';
+    try { const j = JSON.parse(await r.text()); motivo = (j.error && j.error.message) || ''; } catch (e) {}
+    ULTIMO_ERRORE = { id, status: r.status, motivo, quando: Date.now() };
+    return new Response('Errore Drive ' + r.status + (motivo ? ': ' + motivo : ''), { status: r.status });
+  }
   if (r.status === 200 && inizio > 0) {
     // il server ha ignorato l'intervallo: si restituisce il file intero
     return new Response(r.body, { status: 200, headers: { 'Content-Type': tipoMime(m), 'Content-Length': String(tot), 'Accept-Ranges': 'bytes' } });
@@ -118,6 +134,10 @@ async function streaming(req, id) {
 self.addEventListener('fetch', (e) => {
   const u = new URL(e.request.url);
   const i = u.pathname.indexOf('/__drive__/');
+  if (i >= 0 && u.origin === self.location.origin && u.pathname.endsWith('/__drive__/_errore')) {
+    e.respondWith(new Response(JSON.stringify(ULTIMO_ERRORE), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }));
+    return;
+  }
   if (i >= 0 && u.origin === self.location.origin) {
     const id = decodeURIComponent(u.pathname.slice(i + 11));
     e.respondWith(streaming(e.request, id));

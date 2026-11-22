@@ -81,6 +81,18 @@ export class Video {
   async diagnosi(p, src, base) {
     if (!src || !/__drive__\//.test(src)) return;
     let causa;
+    // il lettore ricorda l'ultimo rifiuto di Google: se e' recente e' lui il vero motivo
+    try {
+      const u = await (await fetch(src.replace(/__drive__\/.*$/, '__drive__/_errore'))).json();
+      if (u && Date.now() - u.quando < 180000) {
+        if (/quota/i.test(u.motivo || '')) causa = 'Google ha raggiunto il limite di scarico di questo video (succede con i file molto grandi condivisi con un link). Riprova fra qualche ora oppure usa una copia più leggera del video.';
+        else if (u.status === 404) causa = 'il video non è più condiviso: il link potrebbe essere scaduto o annullato.';
+        else causa = `Google ha rifiutato la lettura del video (${u.status}${u.motivo ? ': ' + u.motivo : ''}).`;
+        console.warn('Video non riproducibile:', src, causa);
+        if (p.video && p.video.getAttribute('src') === src) this.messaggio(p, (base ? base + ' ' : '') + 'Motivo: ' + causa);
+        return;
+      }
+    } catch (e) {}
     try {
       const r = await fetch(src, { headers: { Range: 'bytes=0-0' } });
       const t = r.ok ? '' : await r.text().catch(() => '');

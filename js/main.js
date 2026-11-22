@@ -16,6 +16,21 @@ const MODO_OSPITE = !!TOKEN_OSPITE;
 // Profilo d'uso (completo / reader / personalizzato): lo decide determinaProfilo() dopo l'accesso. Fino ad allora tutto abilitato.
 let PROFILO = { chiave: 'completo', nome: 'Completo', funzioni: null, scrive: true, gestione: false };
 const $ = (s) => document.querySelector(s);
+// TEMPI DI AVVIO: con «?tempi=1» nell'indirizzo, a caricamento finito compare un riquadro con i tempi di ogni fase (serve a capire dove si perde tempo).
+const TEMPI = { t0: performance.now(), voci: [], dettaglio: [], attivo: /[?&]tempi=1\b/.test(location.search) };
+const marca = (nome) => TEMPI.voci.push([nome, Math.round(performance.now() - TEMPI.t0)]);
+const dettaglio = (nome, ms, extra) => TEMPI.dettaglio.push(`${nome}: ${(ms / 1000).toFixed(1)} s${extra ? ' (' + extra + ')' : ''}`);
+function mostraTempi() {
+  if (!TEMPI.attivo) return;
+  let prec = 0;
+  const righe = TEMPI.voci.map(([n, ms]) => { const r = `${n}: ${((ms - prec) / 1000).toFixed(1)} s (a ${(ms / 1000).toFixed(1)} s)`; prec = ms; return r; });
+  const testo = 'TEMPI DI AVVIO\n' + righe.join('\n') + (TEMPI.dettaglio.length ? '\n\nDettaglio:\n' + TEMPI.dettaglio.join('\n') : '') + `\n\nPython: codice compilato ${motore && motore.pycUsato ? 'riusato' : 'ricompilato'}`;
+  console.info(testo);
+  const d = document.createElement('pre');
+  d.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:30000;background:#0b1220;color:#e2e8f0;border:1px solid #3b4a63;border-radius:8px;padding:10px 12px;font-size:12px;max-width:440px;white-space:pre-wrap;margin:0';
+  d.textContent = testo; d.title = 'Clic per chiudere'; d.onclick = () => d.remove();
+  document.body.append(d);
+}
 let motore = null;
 let drive = null;
 let video = null;
@@ -65,13 +80,13 @@ async function avvio() {
       if (drive.pc) return new Uint8Array(await fetch('engine/volley.py', { cache: 'no-cache' }).then((r) => r.arrayBuffer()));
       return new Uint8Array(await drive.scarica(idProgramma));
     } : null;
-    const pMotore = creaMotore(CFG, stato, programma).then((m) => { motore = m; return m; });
+    const pMotore = creaMotore(CFG, stato, programma, { cachePyc: !MODO_OSPITE }).then((m) => { motore = m; return m; });
     pMotore.catch(() => {});
     if (!drive.pc) await registraServiceWorker();
     if (!drive.connesso()) {
       await richiediLogin();
     }
-    accesso();
+    accesso(); marca('Accesso Google');
     $('#cambia-modo').hidden = !CFG.GOOGLE_CLIENT_ID || MODO_OSPITE;
     $('#cambia-modo').textContent = drive.pc ? '☁ Passa a Google Drive' : '💻 Usa le cartelle del PC';
     $('#cambia-modo').onclick = () => { try { localStorage.setItem('vps_modo', drive.pc ? 'google' : 'pc'); } catch (e) {} location.reload(); };
@@ -83,16 +98,16 @@ async function avvio() {
     }
     stato('Preparazione del programma…');
     $('#avvio-login').hidden = true; $('#avvio-spinner').hidden = false;
-    await pMotore;
-    await applicaProfilo();
+    await pMotore; marca('Python e programma pronti');
+    await applicaProfilo(); marca('Profilo');
     video = new Video({ elementoWidget: UI.elementoWidget, risolvi: risolviVideo, invia });
     UI.initUI({ invia, onOut: gestisciOut, video, ridisegnaTutto: () => invia({ a: 'noop' }, { tutto: true }) });
-    await ripristinaImpostazioni();
+    await ripristinaImpostazioni(); marca('Partite e video letti');
     stato('Apertura…');
     const r = JSON.parse(await motore.chiama('avvia', true));
     $('#avvio').remove();
     $('#barra-sup').hidden = false;
-    await applicaRisposta(r);
+    await applicaRisposta(r); marca('Finestra aperta'); mostraTempi();
   } catch (e) {
     console.error(e);
     erroreAvvio('Avvio non riuscito: ' + (e.message || e), e.stack || '');
@@ -523,6 +538,7 @@ const NOMI_ALLEN = new Set();
 const PREF_DATI_ALLEN = 'Allenamenti_';
 
 async function montaDvw(cartella, silenzioso, allen) {
+  const tIni = performance.now(); let nDvw = 0;
   const path = percorsoPer(cartella, 'dvw');
   if (!silenzioso) avvisoLungo(`Copio ${allen ? 'le sedute' : 'le partite'} da “${cartella.name}”…`);
   try {
@@ -539,6 +555,8 @@ async function montaDvw(cartella, silenzioso, allen) {
     if (allenamenti.length) note.push(`${allenamenti.length} sedute di allenamento non incluse (nel web non c'è ancora la sezione Allenamenti)`);
     if (doppi.length) note.push(`${doppi.length} partite con un nome già presente in un'altra sottocartella non sono state caricate`);
     if (note.length && !silenzioso) avviso(note.join(' · '));
+    nDvw = dvw.length;
+    const tElenco = performance.now() - tIni;
     await motore.chiama('fs_svuota', path);
     let fatti = 0;
     // download in parallelo, scrittura nell'ordine alfabetico (come in Windows)
@@ -564,6 +582,7 @@ async function montaDvw(cartella, silenzioso, allen) {
     }
     try { await leggiImpostazioniDrive(figliDati, idDati); } catch (e) { console.warn('impostazioni del Drive non lette', e); }
     await motore.chiama('dati_base');
+    dettaglio((allen ? 'Sedute ' : 'Partite ') + cartella.name, performance.now() - tIni, `${nDvw} file; elenco ${(tElenco / 1000).toFixed(1)} s`);
     MONTAGGI[path] = { id: cartella.id, name: cartella.name, kind: 'dvw' };
     if (allen) MONTAGGI[path].sez = 'allen';
     salvaJson('vps_montaggi', MONTAGGI);
@@ -573,6 +592,7 @@ async function montaDvw(cartella, silenzioso, allen) {
 }
 
 async function montaVideo(cartella, silenzioso, allen) {
+  const tIni = performance.now();
   const path = percorsoPer(cartella, 'video');
   if (!silenzioso) avvisoLungo(`Leggo l'elenco dei video in “${cartella.name}”…`);
   try {
@@ -585,6 +605,7 @@ async function montaVideo(cartella, silenzioso, allen) {
     }
     await motore.chiama('fs_svuota', path);
     await motore.chiama('fs_segnaposto', JSON.stringify(lista));
+    dettaglio('Video ' + cartella.name, performance.now() - tIni, `${lista.length} video`);
     MONTAGGI[path] = { id: cartella.id, name: cartella.name, kind: 'video' };
     if (allen) MONTAGGI[path].sez = 'allen';
     salvaJson('vps_montaggi', MONTAGGI);

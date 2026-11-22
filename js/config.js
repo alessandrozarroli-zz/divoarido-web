@@ -41,7 +41,7 @@ window.VPS_CONFIG = {
 
   // LINK PER OSPITI (fase 7): indirizzo del servizio Google Apps Script (ospiti\Code.gs, «Distribuisci» > «Applicazione web»), finisce con /exec.
   // Vuoto = link per ospiti NON attivi (nessun pulsante «Link ospiti», e i link gia' dati non funzionano).
-  OSPITI_URL: '',
+  OSPITI_URL: 'https://script.google.com/macros/s/AKfycbw0iMYHN_Z64ZeMsEJ4RO2i-hLc1zzfKN0yQL2Q4llDu_kpQ8dNThWxu0NUrQq7Rxnd5Q/exec',
 
   // PROFILI D'USO (completo / reader / personalizzati, vedi js/profili.js). MARCATORE_COMPLETO = ID della cartella «Funzioni complete»
   // (la vede solo chi ha il profilo completo; vuoto = profili NON attivi, tutti vedono tutto come prima). CARTELLA_PROFILI = ID della
@@ -56,5 +56,5 @@ window.VPS_CONFIG = {
   // Non modificare (versioni dei componenti)
   PYODIDE_URL: 'https://cdn.jsdelivr.net/pyodide/v0.28.2/full/',
   REPORTLAB_WHEEL: 'reportlab-5.0.1-py3-none-any.whl',
-  VERSIONE: '1.0.27-20261121-2057',
+  VERSIONE: '1.0.27-20261122-0937',
 };

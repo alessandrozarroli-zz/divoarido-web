@@ -179,13 +179,27 @@ async function preparaLinkOspiti() {
 }
 
 // Le gare e le sedute caricate (con il loro video, se abbinato): servono a scegliere cosa mostrare con un link
+// Copie leggere (720p) dei video, in una cartella parallela del Drive («Video gare web», una sottocartella per gara, file «<nome> (web).mp4»).
+// Se per un video esiste la copia, il link per gli ospiti usa quella: pesa circa un quarto, parte subito e non esaurisce il limite di scarico di Google.
+async function copieWeb() {
+  const m = new Map();
+  if (!CFG.CARTELLA_VIDEO_WEB || drive.pc) return m;
+  try { for (const v of await drive.videoRicorsivi(CFG.CARTELLA_VIDEO_WEB)) m.set(v.name.toLowerCase(), v); }
+  catch (e) { console.warn('copie leggere non lette', e); }
+  return m;
+}
+const nomeCopiaWeb = (nome) => nome.replace(/\.[^.\/]+$/, '').toLowerCase() + ' (web).mp4';
+
 async function raccogliGare() {
   const imp = await leggiImpostazioniMotore();
   const vm = imp.video_map || {};
+  const web = await copieWeb();
   const out = [];
   for (const [, d] of DVW_ID) {
-    const v = INDICE_VIDEO.get(vm[d.nome]);
-    out.push({ n: d.nome, d: d.id, s: d.allen ? 'a' : 'g', v: v ? v.id : null, r: v ? (v.rel || v.name) : '', m: v ? (v.mimeType || '') : '', z: v ? Number(v.size) || 0 : 0 });
+    const o = INDICE_VIDEO.get(vm[d.nome]);
+    const c = o ? web.get(nomeCopiaWeb(o.name)) : null;
+    const v = c || o;
+    out.push({ n: d.nome, d: d.id, s: d.allen ? 'a' : 'g', v: v ? v.id : null, r: v ? (v.rel || v.name) : '', m: v ? (v.mimeType || '') : '', z: v ? Number(v.size) || 0 : 0, web: !!c, zo: o ? Number(o.size) || 0 : 0 });
   }
   out.sort((a, b) => (a.s === b.s ? 0 : a.s === 'g' ? -1 : 1) || a.n.localeCompare(b.n));
   return out;
@@ -681,6 +695,8 @@ async function applicaAssociazioniCondivise(imp) {
       if (p) imp.video_map[nf] = p;
     }
   }
+  // OSPITE: il video di ogni gara e' quello indicato dal suo link (puo' essere la copia leggera, con un id diverso da quello degli abbinamenti salvati)
+  if (drive.ospite) for (const g of drive.info.gare || []) { const p = g.v && perId.get(g.v); if (p) imp.video_map[g.n] = p; }
 }
 
 // ------------------------------------------------------------------------------------------

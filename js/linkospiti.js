@@ -26,7 +26,7 @@ export function sceltaElementi(tutti, { gare, allenamenti, video }) {
     const sez = g.s === 'a' ? allenamenti : gare;
     const incluso = sez.modo === 'tutti' || (sez.modo === 'scelti' && sez.scelti.has(g.d));
     if (!incluso) continue;
-    out.push(video ? Object.assign({}, g) : Object.assign({}, g, { v: null, r: '', m: '', z: 0 }));
+    out.push(video ? Object.assign({}, g) : Object.assign({}, g, { v: null, r: '', m: '', z: 0, web: false }));
   }
   return out;
 }
@@ -97,7 +97,7 @@ export function apriLinkOspiti({ drive, CFG, elementi, profili, messaggio }) {
     const voci = lista.map((g) => {
       const l = el('label', 'lo-voce'); const c = el('input'); c.type = 'checkbox';
       c.onchange = () => { c.checked ? stato[chiave].scelti.add(g.d) : stato[chiave].scelti.delete(g.d); riepilogo(); };
-      l.append(c, document.createTextNode(' ' + g.n.replace(/\.dvw$/i, '') + (g.v ? '' : '  (senza video)')));
+      l.append(c, document.createTextNode(' ' + g.n.replace(/\.dvw$/i, '') + (g.v ? (g.web ? '  · copia leggera' : (g.z ? `  · originale ${formatoDimensione(g.z)}` : '')) : '  (senza video)')));
       elenco.append(l);
       return { g, l, c };
     });
@@ -131,11 +131,11 @@ export function apriLinkOspiti({ drive, CFG, elementi, profili, messaggio }) {
   const scelti = () => sceltaElementi(tutti, stato);
   function riepilogo() {
     const e = scelti();
-    const nG = e.filter((g) => g.s !== 'a').length, nA = e.filter((g) => g.s === 'a').length, nV = e.filter((g) => g.v).length;
+    const nG = e.filter((g) => g.s !== 'a').length, nA = e.filter((g) => g.s === 'a').length, nV = e.filter((g) => g.v).length, nW = e.filter((g) => g.v && g.web).length;
     const peso = e.reduce((s, g) => s + (g.v ? Number(g.z) || 0 : 0), 0);
-    sintesi.textContent = e.length ? `Il link darà accesso a ${nG} gare e ${nA} allenamenti${stato.video ? `, con ${nV} video${peso ? ' (' + formatoDimensione(peso) + ')' : ''}` : ', senza video'}.` : 'Nessuna gara scelta.';
+    sintesi.textContent = e.length ? `Il link darà accesso a ${nG} gare e ${nA} allenamenti${stato.video ? `, con ${nV} video${nW ? ' (' + nW + ' in copia leggera)' : ''}${peso ? ' (' + formatoDimensione(peso) + ')' : ''}` : ', senza video'}.` : 'Nessuna gara scelta.';
     const grandi = stato.video ? e.filter((g) => g.v && Number(g.z) > 1.5 * 1073741824).length : 0;
-    avvisoGrandi.textContent = grandi ? `⚠️  video superano 1,5 GB: Google limita quanto può essere scaricato da un file condiviso con un link e, dopo alcune visioni, può bloccarlo per qualche ora. Per più ospiti o più visioni sono meglio le copie leggere (720p).` : '';
+    avvisoGrandi.textContent = grandi ? `⚠️  video superano 1,5 GB: Google limita quanto può essere scaricato da un file condiviso con un link e, dopo alcune visioni, può bloccarlo per qualche ora. Le copie leggere (720p) non hanno questo problema: crea quelle mancanti con crea_copie_web.py --gare.` : '';
     bCrea.disabled = !e.length;
   }
   riepilogo();

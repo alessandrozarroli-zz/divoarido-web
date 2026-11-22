@@ -29,6 +29,9 @@ window.VPS_CONFIG = {
   // Cartella del Drive dove il programma salva i PROPRI dati (flag, traiettorie, abbinamenti partita↔video), separata dalle
   // partite e dai video. Si incolla l'ID della cartella (come sopra). Chi deve poter salvare ha il permesso Editor su
   // questa cartella; per Dvs_Video basta la sola visualizzazione. Vuoto = i dati restano nella cartella delle partite.
+  // Copie leggere (720p) delle gare: ID della cartella «DivoArido / Video gare web» sul Drive (vuoto = non usate). Le crea crea_copie_web.py --gare.
+  CARTELLA_VIDEO_WEB: '1_muz3-YJOKpBttl5AY9SiQ4Uzgf4-o2f',   // «DivoArido / Video gare web»
+
   CARTELLA_DATI: '1uctZk79NcDcXxKyvh727Fgd9u4r6OIg7',          // «DivoArido / dati» sul Drive
 
   // Sezione ALLENAMENTI (interruttore Gare/Allenamenti): i file .dvw delle sedute (solo quelli con @ nel nome) stanno in
@@ -56,5 +59,5 @@ window.VPS_CONFIG = {
   // Non modificare (versioni dei componenti)
   PYODIDE_URL: 'https://cdn.jsdelivr.net/pyodide/v0.28.2/full/',
   REPORTLAB_WHEEL: 'reportlab-5.0.1-py3-none-any.whl',
-  VERSIONE: '1.0.27-20261122-1002',
+  VERSIONE: '1.0.27-20261122-1024',
 };

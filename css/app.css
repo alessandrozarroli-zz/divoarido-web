@@ -133,9 +133,9 @@ button { font: inherit; }
 .tk-finestra.tk-fullscreen:not(.tk-radice):not(.tk-modale) .tk-paned.tk-paned-o { flex-direction: row !important; overflow: hidden; margin: 0 !important; }
 .tk-finestra.tk-fullscreen:not(.tk-radice):not(.tk-modale) .tk-paned.tk-paned-o > .tk-pane { flex: 1 1 0 !important; min-height: 0; width: auto !important; }
 .tocco .tk-finestra.tk-fullscreen .tk-pane > .tk-cont:nth-child(1) { margin: 0 !important; height: auto !important; }
-.tocco .tk-finestra.tk-fullscreen .tk-pane > .tk-cont:nth-child(2) { flex-wrap: nowrap; overflow-x: auto; margin: 2px 0 2px 0 !important; padding-right: 44px; }
-.tocco .tk-finestra.tk-fullscreen .tk-pane > .tk-cont:nth-child(2) > * { flex: 0 0 auto; }
-.tocco .tk-finestra.tk-fullscreen .tk-pane > :nth-child(n+3),
+.tocco .tk-finestra.tk-fullscreen .tk-pane > .tk-cont:nth-child(2), .tocco .tk-finestra.tk-fullscreen .tk-pane > .tk-cont:nth-child(3) { flex-wrap: nowrap; overflow-x: auto; margin: 2px 0 2px 0 !important; padding-right: 44px; }
+.tocco .tk-finestra.tk-fullscreen .tk-pane > .tk-cont:nth-child(2) > *, .tocco .tk-finestra.tk-fullscreen .tk-pane > .tk-cont:nth-child(3) > * { flex: 0 0 auto; }
+.tocco .tk-finestra.tk-fullscreen .tk-pane > :nth-child(n+4),
 .tocco .tk-finestra.tk-fullscreen .tk-root > .tk-label:last-child { display: none !important; }
 .scena-intera #barra-sup { display: none; }
 .tocco .tk-finestra.tk-elenco { position: fixed; top: 0 !important; right: 0 !important; bottom: 0 !important; left: auto !important; width: min(420px, 62vw) !important; height: auto !important; max-width: none; border-radius: 0; resize: none; border-width: 0 0 0 1px; z-index: 9600 !important; }

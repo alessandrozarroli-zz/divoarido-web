@@ -29,7 +29,7 @@ export class Video {
       case 'seek': if (v) { v.currentTime = (o.ms || 0) / 1000; } break;
       case 'volume': if (v) v.volume = Math.max(0, Math.min(1, (o.v || 0) / 100)); break;
       case 'mute': if (v) v.muted = !!o.v; break;
-      case 'rate': if (v) v.playbackRate = o.v || 1; break;
+      case 'rate': if (v) { v.playbackRate = o.v || 1; v.defaultPlaybackRate = o.v || 1; } break;   // il default fa restare la velocita' anche quando cambia il file (Slow)
       case 'score': this.punteggio(p, o.data); break;
       case 'release': if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.parentElement?.remove(); } this.players.delete(o.id); break;
     }

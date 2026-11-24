@@ -170,6 +170,7 @@ export class Video {
     }
     p.stop = stop != null ? stop : null;
     p.statoAtteso = null;
+    this.mostra(p);
     const vai = () => {
       try { v.currentTime = start; } catch (e) {}
       const pr = v.play();
@@ -185,6 +186,14 @@ export class Video {
       v.src = ris.url;
       v.addEventListener('loadedmetadata', vai, { once: true });
     }
+  }
+
+  // Telefono/tablet: elenco e video sono uno sopra l'altro; quando parte una clip si fa scorrere la finestra fino al video
+  // (col tasto ↕ della barra si torna all'elenco). Non fa nulla se il video si vede gia'.
+  mostra(p) {
+    if (!window.matchMedia || !window.matchMedia('(max-width: 820px)').matches || !p.box) return;
+    if (!p.box.closest('.tk-finestra:not(.tk-radice)')) return;
+    try { p.box.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' }); } catch (e) {}
   }
 
   stato(p, s) {

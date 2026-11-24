@@ -188,7 +188,9 @@ async function preparaLinkOspiti() {
     b.disabled = true;
     try {
       const elenco = PROFILO.elenco || [];
-      const profili = [{ id: 'reader', nome: 'Reader', funzioni: elenco.filter((e) => e[2]).map((e) => e[0]) }];
+      // Reader (default sicuro) e Completo (tutte le funzioni di sola lettura: l'ospite non scrive mai, vedi FUNZIONI_NO_OSPITE); la durata si sceglie per ogni link
+      const profili = [{ id: 'reader', nome: 'Reader', funzioni: elenco.filter((e) => e[2]).map((e) => e[0]) },
+                       { id: 'completo', nome: 'Completo', funzioni: elenco.map((e) => e[0]) }];
       try { for (const p of (await leggiConfigProfili(drive, CFG)).cfg.profili) profili.push({ id: p.id, nome: p.nome, funzioni: p.funzioni || [] }); } catch (e) { console.warn('profili personalizzati non letti', e); }
       const gare = await raccogliGare();
       apriLinkOspiti({ drive, CFG, elementi: () => gare, profili, messaggio: (t) => avviso(t) });

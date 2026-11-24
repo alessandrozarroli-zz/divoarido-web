@@ -110,7 +110,7 @@ function disegnaFinestra(node) {
     box.dataset.id = node.id;
     const barra = document.createElement('div');
     barra.className = 'tk-barra';
-    barra.innerHTML = `<span class="tk-titolo"></span><span class="tk-azioni"><button class="tk-max" title="Ingrandisci">▢</button><button class="tk-x" title="Chiudi">✕</button></span>`;
+    barra.innerHTML = `<span class="tk-titolo"></span><span class="tk-azioni"><button class="tk-scambia" title="Passa fra elenco e video">↕</button><button class="tk-max" title="Ingrandisci">▢</button><button class="tk-x" title="Chiudi">✕</button></span>`;
     const body = document.createElement('div');
     body.className = 'tk-corpo';
     box.append(barra, body);
@@ -119,7 +119,21 @@ function disegnaFinestra(node) {
     FINESTRE.set(node.id, f);
     barra.querySelector('.tk-x').onclick = () => ctx.invia({ a: 'close', id: node.id });
     barra.querySelector('.tk-max').onclick = () => { box.classList.toggle('tk-massimizzata'); };
-    if (radice) barra.querySelector('.tk-x').remove();
+    // schermi stretti: se il contenuto e' piu' largo della finestra (elenco + video affiancati) compare il tasto ↔ che porta all'altro lato
+    const bS = barra.querySelector('.tk-scambia');
+    // elenco e video sono uno sopra l'altro dentro il riquadro a due parti (che scorre in verticale); se non c'e', si scorre di lato
+    const duePezzi = () => { const pn = body.querySelector('.tk-paned-o'); return pn && pn.scrollHeight > pn.clientHeight + 20 ? pn : null; };
+    bS.onclick = () => {
+      const pn = duePezzi();
+      if (pn) { pn.scrollTo({ top: pn.scrollTop > 10 ? 0 : pn.scrollHeight, behavior: 'smooth' }); return; }
+      body.scrollTo({ left: body.scrollLeft > 10 ? 0 : body.scrollWidth, behavior: 'smooth' });
+    };
+    let aggiorna = 0;
+    const aggiornaTasto = () => { aggiorna = 0; bS.classList.toggle('ha-scorrimento', !!duePezzi() || body.scrollWidth > body.clientWidth + 20); };
+    const programma = () => { if (!aggiorna) aggiorna = requestAnimationFrame(aggiornaTasto); };
+    new ResizeObserver(programma).observe(body);
+    new MutationObserver(programma).observe(body, { childList: true, subtree: true });
+    if (radice) { barra.querySelector('.tk-x').remove(); bS.remove(); }
     box.addEventListener('mousedown', () => attiva(node.id), true);
     trascinabile(box, barra);
   }
@@ -225,16 +239,17 @@ function attiva(id) {
 
 function trascinabile(box, barra) {
   let dx = 0, dy = 0, su = false;
-  barra.addEventListener('mousedown', (e) => {
+  barra.addEventListener('pointerdown', (e) => {
     if (box.classList.contains('tk-radice') || e.target.closest('button')) return;
-    su = true; dx = e.clientX - box.offsetLeft; dy = e.clientY - box.offsetTop; e.preventDefault();
+    su = true; dx = e.clientX - box.offsetLeft; dy = e.clientY - box.offsetTop;
   });
-  window.addEventListener('mousemove', (e) => {
+  window.addEventListener('pointermove', (e) => {
     if (!su) return;
     box.style.left = Math.max(-box.offsetWidth + 80, Math.min(window.innerWidth - 60, e.clientX - dx)) + 'px';
     box.style.top = Math.max(0, Math.min(window.innerHeight - 30, e.clientY - dy)) + 'px';
   });
-  window.addEventListener('mouseup', () => { su = false; });
+  window.addEventListener('pointerup', () => { su = false; });
+  window.addEventListener('pointercancel', () => { su = false; });
   barra.addEventListener('dblclick', () => { if (!box.classList.contains('tk-radice')) box.classList.toggle('tk-massimizzata'); });
 }
 
@@ -605,6 +620,7 @@ function disegnaNotebook(el, node, kw) {
 
 function disegnaPaned(el, node, kw) {
   el.classList.add('tk-paned');
+  el.classList.toggle('tk-paned-o', (kw.orient || 'horizontal') === 'horizontal');
   const orient = kw.orient || 'horizontal';
   el.style.flexDirection = orient === 'horizontal' ? 'row' : 'column';
   const figli = new Map((node.ch || []).map((c) => [c.id, c]));
@@ -635,7 +651,7 @@ function disegnaPaned(el, node, kw) {
 }
 
 function trascinaSash(sash, paneEl, orient) {
-  sash.addEventListener('mousedown', (e) => {
+  sash.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     const p = paneEl(); if (!p) return;
     const inizio = orient === 'horizontal' ? e.clientX : e.clientY;
@@ -644,8 +660,8 @@ function trascinaSash(sash, paneEl, orient) {
       const d = (orient === 'horizontal' ? ev.clientX : ev.clientY) - inizio;
       p.style.flex = `0 0 ${Math.max(60, dim + d)}px`; p.dataset.ridim = '1';
     };
-    const fine = () => { window.removeEventListener('mousemove', muovi); window.removeEventListener('mouseup', fine); };
-    window.addEventListener('mousemove', muovi); window.addEventListener('mouseup', fine);
+    const fine = () => { window.removeEventListener('pointermove', muovi); window.removeEventListener('pointerup', fine); window.removeEventListener('pointercancel', fine); };
+    window.addEventListener('pointermove', muovi); window.addEventListener('pointerup', fine); window.addEventListener('pointercancel', fine);
   });
 }
 

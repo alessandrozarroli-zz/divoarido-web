@@ -65,6 +65,24 @@ export class Video {
         this.stato(p, 'Error');
         this.diagnosi(p, v.getAttribute('src'), t);
       });
+      // Telefono/tablet: il quadratino di schermo intero dei comandi del video e' quello del browser (mostra solo il video, senza elenco clip
+      // ne' comandi): lo si sostituisce con lo schermo intero del programma (scena unica con la linguetta delle clip). 24/11/2026.
+      const nativoFuori = () => { try { if (document.fullscreenElement === v) return document.exitFullscreen(); } catch (e) {} try { v.webkitExitFullscreen?.(); } catch (e) {} return Promise.resolve(); };
+      const apriScena = () => {
+        if (!document.documentElement.classList.contains('tocco')) return;
+        const fin = p.box.closest('.tk-finestra:not(.tk-radice)');
+        if (!fin || fin.classList.contains('tk-fullscreen')) return;           // gia' a schermo intero del programma: basta uscire da quello del video
+        const b = [...fin.querySelectorAll('button')].find((x) => /Schermo intero/.test(x.textContent));
+        if (b) b.click();
+      };
+      v.addEventListener('fullscreenchange', () => {
+        if (document.fullscreenElement !== v || !document.documentElement.classList.contains('tocco')) return;
+        Promise.resolve(nativoFuori()).catch(() => {}).then(apriScena);
+      });
+      v.addEventListener('webkitbeginfullscreen', () => {
+        if (!document.documentElement.classList.contains('tocco')) return;
+        Promise.resolve(nativoFuori()).catch(() => {}).then(apriScena);
+      });
       v.addEventListener('timeupdate', () => {
         if (p.stop != null && v.currentTime >= p.stop) { p.stop = null; v.pause(); }
         if (p.score) this.disegnaPunteggio(p);

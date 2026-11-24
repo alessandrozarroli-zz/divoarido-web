@@ -571,7 +571,9 @@ function disegnaTree(el, node, kw) {
     const tr = el._righe.get(x.see);
     if (tr) requestAnimationFrame(() => {
       const r = tr.getBoundingClientRect(), c = el.getBoundingClientRect();
-      if (r.top < c.top + 24 || r.bottom > c.bottom) tr.scrollIntoView({ block: 'nearest' });
+      // si fa scorrere solo l'elenco stesso (scrollIntoView farebbe scorrere anche la pagina, sul telefono salterebbe via dalla vista)
+      if (r.top < c.top + 24) el.scrollTop -= (c.top + 24 - r.top);
+      else if (r.bottom > c.bottom) el.scrollTop += (r.bottom - c.bottom);
     });
   }
 }

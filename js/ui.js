@@ -150,8 +150,13 @@ function disegnaFinestra(node) {
   f.box.classList.toggle('tk-sopra', !!f.wm.topmost);
   const eraFull = f.box.classList.contains('tk-fullscreen');
   f.box.classList.toggle('tk-fullscreen', !!f.wm.fullscreen);
-  if (f.wm.fullscreen && !eraFull) { try { document.documentElement.requestFullscreen?.(); } catch (e) {} }
-  if (!f.wm.fullscreen && eraFull && document.fullscreenElement) { try { document.exitFullscreen(); } catch (e) {} }
+  if (f.wm.fullscreen && !eraFull) {
+    try { document.documentElement.requestFullscreen?.()?.then?.(() => { if (tocco()) screen.orientation?.lock?.('landscape')?.catch?.(() => {}); }, () => {}); } catch (e) {}
+  }
+  if (!f.wm.fullscreen && eraFull) {
+    try { screen.orientation?.unlock?.(); } catch (e) {}
+    if (document.fullscreenElement) { try { document.exitFullscreen(); } catch (e) {} }
+  }
   aggiornaVelo();
   if (!f.radice && !f.posizionata) {
     const g = geometria(f.wm.geometry);
@@ -174,14 +179,26 @@ function disegnaFinestra(node) {
 function aggiornaVelo() {
   const modale = [...FINESTRE.values()].some((f) => f.wm.modal && !f.wm.withdrawn);
   document.getElementById('velo').classList.toggle('attivo', modale);
+  // a schermo intero la barra in alto della pagina (z-index 50) copriva l'angolo del video con il punteggio: si nasconde
+  document.documentElement.classList.toggle('scena-intera', [...FINESTRE.values()].some((x) => x.box.classList.contains('tk-fullscreen') && !x.wm.withdrawn));
 }
 
 // Elenco delle clip a schermo intero (finestra «Elenco Clip», sempre in primo piano): come la barra dell'exe, vista NORMALE o TRASPARENTE
 // (quasi invisibile sopra il video, torna piena col mouse sopra) e RIDUCI A ICONA (tasto L o clic sull'icona per riaprirla).
 // La vista scelta resta nel browser. 21/11/2026.
+// Telefono e tablet (schermo stretto o tocco): lo schermo intero e' una scena unica (video + punteggio + comandi) e l'elenco delle clip e' un
+// cassetto sul bordo destro che si apre con la linguetta ☰ e si richiude da solo quando si sceglie una clip. 24/11/2026.
+const MQ_TOCCO = window.matchMedia ? window.matchMedia('(max-width: 820px), (pointer: coarse)') : null;
+function tocco() { return !!(MQ_TOCCO && MQ_TOCCO.matches); }
+function segnaTocco() { document.documentElement.classList.toggle('tocco', tocco()); }
+segnaTocco();
+if (MQ_TOCCO) { try { MQ_TOCCO.addEventListener('change', segnaTocco); } catch (e) { try { MQ_TOCCO.addListener(segnaTocco); } catch (e2) {} } }
+
 function adattaElencoClip(f) {
   if (f.elencoClip || f.radice || f.wm.title !== 'Elenco Clip') return;
   f.elencoClip = true;
+  f.box.classList.add('tk-elenco');
+  const xs = f.barra.querySelector('.tk-x'); if (xs) xs.title = 'Esci dallo schermo intero';
   const az = f.barra.querySelector('.tk-azioni');
   const bT = document.createElement('button'); bT.className = 'tk-trasp-b'; bT.title = 'Vista trasparente / normale'; bT.textContent = '◌';
   const bR = document.createElement('button'); bR.className = 'tk-riduci'; bR.title = 'Riduci a icona (tasto L)'; bR.textContent = '▁';
@@ -197,6 +214,9 @@ function adattaElencoClip(f) {
   f.riduciElenco = (si) => { f.box.classList.toggle('tk-ridotta', si); ic.hidden = !si; if (!si) attiva([...FINESTRE].find(([, x]) => x === f)?.[0]); };
   bR.onclick = () => f.riduciElenco(true);
   ic.onclick = () => f.riduciElenco(false);
+  // telefono/tablet: si parte con il solo bordo (linguetta); scegliendo una clip dall'elenco il cassetto si richiude e il video resta libero
+  if (tocco()) f.riduciElenco(true);
+  f.body.addEventListener('click', (e) => { if (tocco() && e.target.closest && e.target.closest('tr')) setTimeout(() => f.riduciElenco(true), 350); });
 }
 document.addEventListener('keydown', (e) => {
   if ((e.key !== 'l' && e.key !== 'L') || e.ctrlKey || e.metaKey || e.altKey) return;

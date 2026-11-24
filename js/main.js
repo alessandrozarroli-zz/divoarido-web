@@ -313,6 +313,8 @@ async function passaTokenSW() {
 }
 
 function risolviVideo(path) {
+  // clip introduttiva: sta sul sito stesso (img/StayTuned.mp4), non sul Drive; si vede anche dagli ospiti
+  if (path === 'web://intro/StayTuned.mp4') return { url: 'img/StayTuned.mp4', nome: 'Intro' };
   const v = INDICE_VIDEO.get(path);
   if (!v) return null;
   if (drive.ospite && drive.scaduto()) return null;

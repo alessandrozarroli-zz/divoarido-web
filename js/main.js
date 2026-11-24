@@ -17,7 +17,9 @@ const MODO_OSPITE = !!TOKEN_OSPITE;
 let PROFILO = { chiave: 'completo', nome: 'Completo', funzioni: null, scrive: true, gestione: false };
 const $ = (s) => document.querySelector(s);
 // TEMPI DI AVVIO: con «?tempi=1» nell'indirizzo, a caricamento finito compare un riquadro con i tempi di ogni fase (serve a capire dove si perde tempo).
+window.__TEMPI = null;
 const TEMPI = { t0: performance.now(), voci: [], dettaglio: [], attivo: /[?&]tempi=1\b/.test(location.search) };
+window.__TEMPI = TEMPI;
 const marca = (nome) => TEMPI.voci.push([nome, Math.round(performance.now() - TEMPI.t0)]);
 const dettaglio = (nome, ms, extra) => TEMPI.dettaglio.push(`${nome}: ${(ms / 1000).toFixed(1)} s${extra ? ' (' + extra + ')' : ''}`);
 function mostraTempi() {
@@ -87,6 +89,7 @@ async function avvio() {
       await richiediLogin();
     }
     accesso(); marca('Accesso Google');
+    precarica();
     $('#cambia-modo').hidden = !CFG.GOOGLE_CLIENT_ID || MODO_OSPITE;
     $('#cambia-modo').textContent = drive.pc ? '☁ Passa a Google Drive' : '💻 Usa le cartelle del PC';
     $('#cambia-modo').onclick = () => { try { localStorage.setItem('vps_modo', drive.pc ? 'google' : 'pc'); } catch (e) {} location.reload(); };
@@ -107,7 +110,7 @@ async function avvio() {
     const r = JSON.parse(await motore.chiama('avvia', true));
     $('#avvio').remove();
     $('#barra-sup').hidden = false;
-    await applicaRisposta(r); marca('Finestra aperta'); mostraTempi();
+    await applicaRisposta(r); marca('Finestra aperta'); MEMO.clear(); INFLIGHT.clear(); mostraTempi();
   } catch (e) {
     console.error(e);
     erroreAvvio('Avvio non riuscito: ' + (e.message || e), e.stack || '');
@@ -517,7 +520,36 @@ async function dialogoFileVideo(opts) {
 const CACHE_DVW = 'vps-dvw-v1';
 // Partite e sedute caricate: «g|nome» -> {nome, id, allen}. Servono al proprietario per scegliere cosa mostrare con un link per ospiti.
 const DVW_ID = new Map();
-async function scaricaConCache(f) {
+// Dall'elenco dei .dvw trovati: solo i file con @ nel nome (gli altri non sono ancora attendibili per lo studio), senza doppioni.
+function selezionaDvw(lista, allen) {
+  return filtraPartite(lista.filter((f) => f.name.includes('@')), { includiAllenamenti: !!allen || !!CFG.INCLUDI_ALLENAMENTI });
+}
+// I file di dati del programma (flag, traiettorie...) nella cartella dei dati: gare = «DivoArido_*.json»; sezione Allenamenti = «Allenamenti_DivoArido_*.json»
+const rxDatiPer = (allen) => (allen ? new RegExp('^' + PREF_DATI_ALLEN + '((?:DivoArido|VolleyProSuite)_[^/]*\\.json)$', 'i') : DATI_CARTELLA);
+// AVVIO VELOCE: le letture dal Drive partono SUBITO dopo l'accesso (precarica), mentre Python si prepara, e le cartelle si leggono insieme.
+// Memorie temporanee valide solo durante l'avvio (si svuotano a finestra aperta): una richiesta identica gia' in corso si riusa.
+const AVVIO_VELOCE = !/[?&]avvio=classico\b/.test(location.search) && CFG.AVVIO_VELOCE !== false;
+const MEMO = new Map();
+function memo(chiave, fn) {
+  const e = MEMO.get(chiave);
+  if (e) return e;
+  const pr = Promise.resolve().then(fn);
+  MEMO.set(chiave, pr);
+  pr.catch(() => MEMO.delete(chiave));
+  return pr;
+}
+const figliM = (id) => memo('figli|' + id, () => drive.figli(id));
+const scaricaM = (id) => memo('scarica|' + id, () => drive.scarica(id));
+const INFLIGHT = new Map();
+function scaricaConCache(f) {
+  const k = f.id + '|' + (f.modifiedTime || '');
+  if (INFLIGHT.has(k)) return INFLIGHT.get(k);
+  const pr = scaricaConCache0(f);
+  INFLIGHT.set(k, pr);
+  pr.catch(() => INFLIGHT.delete(k));
+  return pr;
+}
+async function scaricaConCache0(f) {
   if (drive.ospite) return new Uint8Array(await drive.scarica(f.id));         // l'ospite non lascia nulla nella memoria del browser
   const chiave = new URL(`./__cache_dvw__/${f.id}/${encodeURIComponent(f.modifiedTime || '')}`, location.href).href;
   let cache = null;
@@ -542,12 +574,20 @@ async function montaDvw(cartella, silenzioso, allen) {
   const path = percorsoPer(cartella, 'dvw');
   if (!silenzioso) avvisoLungo(`Copio ${allen ? 'le sedute' : 'le partite'} da “${cartella.name}”…`);
   try {
-    const figli = await drive.figli(cartella.id);        // i dati (flag, traiettorie, associazioni) stanno nella cartella scelta
+    // i dati (flag, traiettorie, associazioni) stanno nella cartella dei dati (config.js) oppure, se manca, in quella scelta
+    const idDati = cartellaDati(cartella);
+    if (idDati === cartella.id || drive.ospite) await figliM(cartella.id);      // (per l'ospite e' anche il controllo «sezione inclusa nel link»)
+    const pFigliDati = figliM(idDati).catch((e) => {
+      if (idDati === cartella.id) throw e;
+      console.warn('cartella dei dati non letta', e);
+      if (!silenzioso) avviso('Non riesco a leggere la cartella dei dati del programma (flag e abbinamenti): ' + messaggioCartella(e, 'dei dati'));
+      return [];
+    });
+    pFigliDati.catch(() => {});
     // le partite si cercano nella cartella e nelle sue sottocartelle (anche una cartella per partita);
     // le sedute di allenamento: solo i file con @ nel nome (corretti e associati al video), come nel programma per Windows
-    let elencoDvw = await drive.dvwRicorsivi(cartella.id);
-    elencoDvw = elencoDvw.filter((f) => f.name.includes('@'));      // gare e sedute: solo i file con @ nel nome (gli altri non sono ancora attendibili per lo studio)
-    const { partite: dvw, doppi, allenamenti } = filtraPartite(elencoDvw, { includiAllenamenti: !!allen || !!CFG.INCLUDI_ALLENAMENTI });
+    const elencoDvw = await drive.dvwRicorsivi(cartella.id);
+    const { partite: dvw, doppi, allenamenti } = selezionaDvw(elencoDvw, allen);
     if (allen) for (const f of dvw) NOMI_ALLEN.add(f.name);
     for (const f of dvw) DVW_ID.set((allen ? 'a|' : 'g|') + f.name, { nome: f.name, id: f.id, allen: !!allen });
     if (doppi.length) console.warn('Partite con lo stesso nome in più sottocartelle, ignorate:', doppi);
@@ -557,6 +597,11 @@ async function montaDvw(cartella, silenzioso, allen) {
     if (note.length && !silenzioso) avviso(note.join(' · '));
     nDvw = dvw.length;
     const tElenco = performance.now() - tIni;
+    // i file dei dati si scaricano subito, insieme alle partite
+    const rxDati = rxDatiPer(allen);
+    const figliDati = await pFigliDati;
+    const fileDati = figliDati.filter((x) => rxDati.test(x.name) && !/backup/i.test(x.name));
+    const pDati = fileDati.map((f) => scaricaM(f.id).catch((e) => { console.warn('dati non letti', f.name, e); return null; }));
     await motore.chiama('fs_svuota', path);
     let fatti = 0;
     // download in parallelo, scrittura nell'ordine alfabetico (come in Windows)
@@ -566,19 +611,14 @@ async function montaDvw(cartella, silenzioso, allen) {
       while (k < dvw.length) { const i = k++; dati[i] = await scaricaConCache(dvw[i]); fatti++; if (!silenzioso) avvisoLungo(`Copio le partite da “${cartella.name}”… ${fatti}/${dvw.length}`); }
     }));
     for (let i = 0; i < dvw.length; i++) await motore.scriviFile(path + '/' + dvw[i].name, dati[i]);
-    const idDati = cartellaDati(cartella);
-    let figliDati = figli;
-    if (idDati !== cartella.id) {
-      try { figliDati = await drive.figli(idDati); }
-      catch (e) { console.warn('cartella dei dati non letta', e); figliDati = []; if (!silenzioso) avviso('Non riesco a leggere la cartella dei dati del programma (flag e abbinamenti): ' + messaggioCartella(e, 'dei dati')); }
-    }
-    const rxDati = allen ? new RegExp('^' + PREF_DATI_ALLEN + '((?:DivoArido|VolleyProSuite)_[^/]*\\.json)$', 'i') : DATI_CARTELLA;
-    for (const f of figliDati.filter((x) => rxDati.test(x.name) && !/backup/i.test(x.name))) {
-      const locale = allen ? f.name.slice(PREF_DATI_ALLEN.length) : f.name;
+    for (let i = 0; i < fileDati.length; i++) {
+      const f = fileDati[i], locale = allen ? f.name.slice(PREF_DATI_ALLEN.length) : f.name;
+      const b = await pDati[i];
+      if (!b) continue;
       try {
-        await motore.scriviFile(path + '/' + locale, new Uint8Array(await drive.scarica(f.id)));
+        await motore.scriviFile(path + '/' + locale, new Uint8Array(b));
         FILE_DATI.set(path + '/' + locale, { cartellaId: idDati, nome: f.name, id: f.id });
-      } catch (e) { console.warn('dati non letti', f.name, e); }
+      } catch (e) { console.warn('dati non scritti', f.name, e); }
     }
     try { await leggiImpostazioniDrive(figliDati, idDati); } catch (e) { console.warn('impostazioni del Drive non lette', e); }
     await motore.chiama('dati_base');
@@ -615,20 +655,26 @@ async function montaVideo(cartella, silenzioso, allen) {
 
 // Al riavvio: le cartelle usate l'ultima volta vengono ricopiate dal Drive (aggiornate), così
 // la finestra di avvio le propone già pronte, come nel programma per Windows.
-async function ripristinaImpostazioni() {
+// Impostazioni ricordate nel browser. scrivi=false (precarica): non si modifica nulla (nemmeno «vps_predef»).
+function letturaImp(scrivi) {
   const testo = caricaJson('vps_impostazioni', null);
   let imp = {};
   try { imp = testo ? JSON.parse(testo) : {}; } catch (e) { imp = {}; }
-  const daMontare = [];
   // se sono cambiate le cartelle predefinite (config.js: REV_CARTELLE_PREDEFINITE) si dimenticano, una sola volta, quelle ricordate
   if (CFG.REV_CARTELLE_PREDEFINITE && !(drive && drive.pc) && !CFG.MODALITA_LOCALE && !MODO_OSPITE) {
     try {
       if (localStorage.getItem('vps_predef') !== String(CFG.REV_CARTELLE_PREDEFINITE)) {
         delete imp.cartella_dvw; delete imp.cartella_video; delete imp.allen_cartella_dvw; delete imp.allen_cartella_video;
-        localStorage.setItem('vps_predef', String(CFG.REV_CARTELLE_PREDEFINITE));
+        if (scrivi) localStorage.setItem('vps_predef', String(CFG.REV_CARTELLE_PREDEFINITE));
       }
     } catch (e) {}
   }
+  return imp;
+}
+
+// Le cartelle da leggere all'avvio: [[percorso ricordato | null, {id, name, kind, sez?}]]
+function calcolaDaMontare(imp) {
+  const daMontare = [];
   // le cartelle ricordate valgono solo per la modalità in uso (Drive o PC)
   const compat = (m) => !!(drive && drive.pc) === String(m.id).startsWith('P:');
   // (le voci 'allen_…' sono quelle della sezione Allenamenti)
@@ -643,7 +689,36 @@ async function ripristinaImpostazioni() {
   if (conDrive && !imp.cartella_video && CFG.CARTELLA_VIDEO_PREDEFINITA) daMontare.push([null, { id: CFG.CARTELLA_VIDEO_PREDEFINITA, name: CFG.NOME_CARTELLA_VIDEO || 'Video', kind: 'video' }]);
   if (conDrive && !imp.allen_cartella_dvw && CFG.CARTELLA_ALLEN_DVW_PREDEFINITA) daMontare.push([null, { id: CFG.CARTELLA_ALLEN_DVW_PREDEFINITA, name: CFG.NOME_CARTELLA_ALLEN_DVW || 'Allenamenti', kind: 'dvw', sez: 'allen' }]);
   if (conDrive && !imp.allen_cartella_video && CFG.CARTELLA_ALLEN_VIDEO_PREDEFINITA) daMontare.push([null, { id: CFG.CARTELLA_ALLEN_VIDEO_PREDEFINITA, name: CFG.NOME_CARTELLA_ALLEN_VIDEO || 'Allenamenti - video', kind: 'video', sez: 'allen' }]);
-  for (const [p, m] of daMontare) {
+  return daMontare;
+}
+
+// PRECARICA: appena si e' entrati (e mentre Python si prepara) si leggono dal Drive gli elenchi, i file dei dati e le partite, cosi' quando il
+// programma e' pronto trova tutto gia' in memoria. Non scrive nulla e ignora gli errori: se qualcosa manca, ci pensa il montaggio vero.
+function precarica() {
+  if (!AVVIO_VELOCE || !drive || drive.pc) return;
+  try {
+    const imp = letturaImp(false);
+    for (const [, m] of calcolaDaMontare(imp)) {
+      if (m.kind === 'video') { drive.videoRicorsivi(m.id).catch(() => {}); continue; }
+      const allen = m.sez === 'allen';
+      (async () => {
+        const idDati = cartellaDati(m);
+        const pF = figliM(idDati).catch(() => []);
+        const { partite } = selezionaDvw(await drive.dvwRicorsivi(m.id), allen);
+        const rx = rxDatiPer(allen);
+        for (const f of (await pF).filter((x) => rx.test(x.name) && !/backup/i.test(x.name))) scaricaM(f.id).catch(() => {});
+        let k = 0;
+        await Promise.all(Array.from({ length: 6 }, async () => { while (k < partite.length) { const f = partite[k++]; await scaricaConCache(f).catch(() => {}); } }));
+      })().catch(() => {});
+    }
+  } catch (e) { console.warn('precarica', e); }
+}
+
+async function ripristinaImpostazioni() {
+  const imp = letturaImp(true);
+  const daMontare = calcolaDaMontare(imp);
+  const compat = (m) => !!(drive && drive.pc) === String(m.id).startsWith('P:');
+  const monta = async ([p, m]) => {
     const allen = m.sez === 'allen';
     try {
       stato(m.kind === 'video' ? `Leggo l'elenco dei video (${m.name})…` : `Copio ${allen ? 'le sedute' : 'le partite'} (${m.name})…`);
@@ -655,7 +730,11 @@ async function ripristinaImpostazioni() {
       // (lo stesso per l'ospite: le sezioni non incluse nel suo link semplicemente non compaiono)
       if (!MODO_OSPITE && !(allen && !p && /404|403|not found|non trovat|forbidden|permission|insufficient/i.test(String((e && e.message) || e)))) avviso(messaggioCartella(e, m.name));
     }
-  }
+  };
+  // le quattro cartelle (partite, video, sedute, video delle sedute) si leggono INSIEME (prima una dopo l'altra)
+  if (AVVIO_VELOCE) await Promise.all(daMontare.map(monta));
+  else for (const x of daMontare) await monta(x);
+  if (AVVIO_VELOCE) { try { await motore.chiama('dati_base'); } catch (e) {} }          // lo stato dei dati va fissato a montaggi finiti
   // video scelti a mano in passato
   const singoli = Object.entries(MONTAGGI).filter(([, m]) => m.kind === 'file' && compat(m));
   if (singoli.length) {
@@ -695,7 +774,7 @@ async function leggiAssociazioniCondivise(cartella, path, figli, allen) {
   let mioId = null;
   for (const f of files) {
     try {
-      const dati = JSON.parse(new TextDecoder().decode(await drive.scarica(f.id)));
+      const dati = JSON.parse(new TextDecoder().decode(await scaricaM(f.id)));
       Object.assign(map, dati.video || {});
     } catch (e) {}
     if (f.name === mio) mioId = f.id;
@@ -750,7 +829,7 @@ async function leggiImpostazioniDrive(figli, idDati) {
   const mio = figli.find((f) => f.name === nomeFileImp());
   if (mio) {
     IMPD.fileId = mio.id;
-    try { IMPD.dati = JSON.parse(new TextDecoder().decode(await drive.scarica(mio.id))); }
+    try { IMPD.dati = JSON.parse(new TextDecoder().decode(await scaricaM(mio.id))); }
     catch (e) { console.warn('impostazioni dal Drive non lette', e); IMPD.dati = null; }
   }
   IMPD.ultimo = IMPD.dati ? firmaImp(IMPD.dati) : '';

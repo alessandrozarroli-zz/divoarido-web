@@ -74,7 +74,10 @@ export class Drive {
   }
 
   async get(path, params = {}, tipo = 'json') {
-    const u = new URL(this.api + path, location.href);
+    // (solo nelle prove di velocita': DRIVE_API_POOL = piu' indirizzi dello stesso server di prova, per imitare il multiplexing di Google, che non ha il limite di 6 richieste insieme)
+    const pool = this.cfg.DRIVE_API_POOL;
+    const base = pool && pool.length ? pool[(this._giro = ((this._giro || 0) + 1)) % pool.length] : this.api;
+    const u = new URL(base + path, location.href);
     for (const [k, v] of Object.entries(params)) if (v != null) u.searchParams.set(k, v);
     for (let tentativo = 0; tentativo < 3; tentativo++) {
       const t = await this.token();

@@ -28,19 +28,28 @@ self.addEventListener('message', (e) => {
   if (d.tipo === 'ospite') { impostaOspite(d); if (d.api) API = d.api; }
 });
 
+// Si chiede alla pagina (a TUTTE le schede aperte insieme, e la prima risposta utile vince): prima si chiedeva una scheda alla volta con 15 s di attesa
+// ciascuna, e le schede vecchie o di prova (che non rispondono) bloccavano il video per decine di secondi. 25/11/2026.
 async function chiediToken(rinnova) {
   const clients = await self.clients.matchAll({ type: 'window' });
-  for (const c of clients) {
-    const t = await new Promise((ok) => {
-      const ch = new MessageChannel();
-      const timer = setTimeout(() => ok(null), 15000);
-      ch.port1.onmessage = (ev) => { clearTimeout(timer); ok(ev.data); };
-      c.postMessage({ tipo: 'serve-token', rinnova: !!rinnova }, [ch.port2]);
-    });
-    if (t && t.ospite && t.ospite.key) { impostaOspite(t.ospite); if (t.api) API = t.api; return TOKEN; }
-    if (t && t.token) { TOKEN = t.token; if (t.api) API = t.api; return TOKEN; }
-  }
-  return TOKEN;
+  if (!clients.length) return TOKEN;
+  return new Promise((fine) => {
+    let pendenti = clients.length, chiuso = false;
+    const chiudi = () => { if (!chiuso) { chiuso = true; fine(TOKEN); } };
+    for (const c of clients) {
+      new Promise((ok) => {
+        const ch = new MessageChannel();
+        const timer = setTimeout(() => ok(null), 4000);
+        ch.port1.onmessage = (ev) => { clearTimeout(timer); ok(ev.data); };
+        try { c.postMessage({ tipo: 'serve-token', rinnova: !!rinnova }, [ch.port2]); } catch (e) { clearTimeout(timer); ok(null); }
+      }).then((t) => {
+        if (chiuso) return;
+        if (t && t.ospite && t.ospite.key) { impostaOspite(t.ospite); if (t.api) API = t.api; return chiudi(); }
+        if (t && t.token) { TOKEN = t.token; if (t.api) API = t.api; return chiudi(); }
+        if (--pendenti === 0) chiudi();
+      });
+    }
+  });
 }
 
 // Credenziali pronte? (altrimenti si chiedono alla pagina)

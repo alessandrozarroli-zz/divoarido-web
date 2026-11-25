@@ -12,6 +12,17 @@ let OSPITE = null;            // {key, claves: {idFile: chiave}} oppure null
 // di un video da 4 GB esaurisce in fretta il limite di scarico del file. Quindi a Google si chiede sempre un pezzo alla volta (8 MB); il browser continua da solo.
 let PEZZO_OSPITE = 8 * 1024 * 1024;
 let ULTIMO_ERRORE = null;     // ultimo rifiuto di Google (per spiegare all'utente perche' un video non parte)
+// Una richiesta a Google che non risponde entro questo tempo viene interrotta (e ritentata una volta): con un collegamento che si ferma a tratti
+// il video restava appeso per sempre. E se il browser annulla la richiesta (salto a un'altra clip) si interrompe subito anche quella a Google,
+// invece di lasciarla scaricare 8 MB che nessuno guarda e che intasano la rete. 25/11/2026.
+let TIMEOUT_PEZZO = 12000;
+
+function fetchConTempo(url, opz, ms, esterno) {
+  const ac = new AbortController();
+  const tm = setTimeout(() => ac.abort(), ms);
+  if (esterno) { if (esterno.aborted) ac.abort(); else esterno.addEventListener('abort', () => ac.abort(), { once: true }); }
+  return fetch(url, Object.assign({}, opz, { signal: ac.signal })).then((r) => { clearTimeout(tm); return r; }, (e) => { clearTimeout(tm); throw e; });
+}
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
@@ -19,6 +30,7 @@ self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 function impostaOspite(d) {
   OSPITE = d && d.key ? { key: d.key, claves: d.claves || {} } : null;
   if (d && d.pezzo > 0) PEZZO_OSPITE = d.pezzo;
+  if (d && d.timeout > 0) TIMEOUT_PEZZO = d.timeout;
   if (!OSPITE) META.clear();
 }
 
@@ -74,8 +86,8 @@ function conChiave(url) {
 async function meta(id) {
   if (META.has(id)) return META.get(id);
   let t = await credenziali(false);
-  let r = await fetch(conChiave(`${API}/files/${id}?fields=size,mimeType,name&supportsAllDrives=true`), { headers: intestazioni(t, id) });
-  if (r.status === 401 && !OSPITE) { t = await chiediToken(true); r = await fetch(`${API}/files/${id}?fields=size,mimeType,name&supportsAllDrives=true`, { headers: intestazioni(t, id) }); }
+  let r = await fetchConTempo(conChiave(`${API}/files/${id}?fields=size,mimeType,name&supportsAllDrives=true`), { headers: intestazioni(t, id) }, TIMEOUT_PEZZO);
+  if (r.status === 401 && !OSPITE) { t = await chiediToken(true); r = await fetchConTempo(`${API}/files/${id}?fields=size,mimeType,name&supportsAllDrives=true`, { headers: intestazioni(t, id) }, TIMEOUT_PEZZO); }
   if (!r.ok) {
     let motivo = '';
     try { const j = JSON.parse(await r.text()); motivo = (j.error && j.error.message) || ''; } catch (e) {}
@@ -96,8 +108,15 @@ function tipoMime(m) {
 }
 
 async function streaming(req, id) {
+  if (req.signal && req.signal.aborted) return new Response(null, { status: 499 });         // il browser ha gia' annullato la richiesta
   let m;
-  try { m = await meta(id); } catch (e) { return new Response('Video non accessibile', { status: 404 }); }
+  try { m = await meta(id); }
+  catch (e) {
+    if (/^meta \d+/.test(String(e && e.message))) return new Response('Video non accessibile', { status: 404 });      // Google ha risposto con un rifiuto
+    // nessuna risposta (rete caduta o scaduto il tempo): non e' «video non accessibile», si dice com'e'
+    ULTIMO_ERRORE = { id, status: 0, motivo: 'informazioni sul video: ' + String((e && e.message) || e), quando: Date.now() };
+    return new Response('Connessione con Google non riuscita', { status: 502 });
+  }
   const tot = m.size;
   let inizio = 0, fine = tot - 1;
   const range = req.headers.get('Range');
@@ -113,12 +132,13 @@ async function streaming(req, id) {
   if (OSPITE) fine = Math.min(fine, inizio + PEZZO_OSPITE - 1);
   const url = conChiave(`${API}/files/${id}?alt=media&supportsAllDrives=true`);
   let t = await credenziali(false);
-  const chiedi = (tok) => fetch(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(tok, id)) });
+  const chiedi = (tok) => fetchConTempo(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(tok, id)) }, TIMEOUT_PEZZO, req.signal);
   let r;
   // una caduta di rete (anche momentanea) non deve far fallire la richiesta senza spiegazioni: si riprova una volta, poi si dice perche'
   for (let k = 0; ; k++) {
     try { r = await chiedi(t); break; }
     catch (e) {
+      if (req.signal && req.signal.aborted) return new Response(null, { status: 499 });     // annullata dal browser (salto a un'altra clip): niente nuovi tentativi
       if (k >= 1) {
         ULTIMO_ERRORE = { id, status: 0, motivo: String((e && e.message) || e), quando: Date.now() };
         return new Response('Connessione con Google non riuscita', { status: 502 });
@@ -128,7 +148,7 @@ async function streaming(req, id) {
   }
   if ((r.status === 401 || r.status === 403) && !OSPITE) {
     t = await chiediToken(true);
-    r = await fetch(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(t, id)) });
+    r = await chiedi(t);
   }
   if (!r.ok) {
     let motivo = '';

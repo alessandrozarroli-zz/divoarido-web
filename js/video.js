@@ -65,6 +65,9 @@ export class Video {
       p.box = box; p.video = v; p.msg = msg; p.diag = dg;
       v.addEventListener('playing', () => { if (p.candidato != null) p.candidatoBuono = p.candidato; p.storia = []; p.inizioProssima = 0; this.messaggio(p, ''); this.diagnostica(p, ''); this.stato(p, 'Playing'); });
       v.addEventListener('pause', () => { if (p.statoAtteso !== 'Stopped') this.stato(p, 'Paused'); });
+      // salto dentro lo stesso video (clip successiva della stessa partita): se non si e' fermato l'evento «playing» non arriva, ma il video gira:
+      // il programma aspetta lo stato «Playing» prima di far partire il conto della clip
+      v.addEventListener('seeked', () => { if (!v.paused && v.readyState >= 3 && !v.error) this.stato(p, 'Playing'); });
       v.addEventListener('ended', () => this.stato(p, 'Ended'));
       v.addEventListener('waiting', () => this.messaggio(p, 'Caricamento…', true));
       v.addEventListener('canplay', () => this.messaggio(p, ''));

@@ -61,7 +61,18 @@ async function info() {
   const n = navigator, c = n.connection || {};
   let mem = 'n.d.';
   try { const e = await n.storage.estimate(); mem = 'spazio per il sito ' + Math.round(e.quota / 1048576) + ' MB, usato ' + Math.round(e.usage / 1048576) + ' MB'; } catch (e) {}
-  $('info').textContent = 'Browser: ' + n.userAgent + '\nRete dichiarata: ' + (c.effectiveType || 'n.d.') + ' · ' + (c.downlink != null ? c.downlink + ' Mbit/s' : 'n.d.') + ' · latenza ' + (c.rtt != null ? c.rtt + ' ms' : 'n.d.') +
+  // indirizzo IP pubblico (servizi che non sono di Google): dice se il tablet e' sulla rete dell'ufficio o su quella dell'operatore del telefono
+  let ip = 'non letto';
+  const proveIp = [['https://api.ipify.org?format=json', (j) => j.ip], ['https://www.cloudflare.com/cdn-cgi/trace', null]];
+  for (const [u, f] of proveIp) {
+    try {
+      const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 6000);
+      const r = await fetch(u, { signal: ac.signal }); clearTimeout(t);
+      if (f) ip = f(await r.json()); else { const tx = await r.text(); const m = /ip=(\S+)/.exec(tx), l = /loc=(\S+)/.exec(tx); ip = (m ? m[1] : '?') + (l ? ' (' + l[1] + ')' : ''); }
+      break;
+    } catch (e) { ip = 'non letto (' + ((e && e.name) || 'errore') + ')'; }
+  }
+  $('info').textContent = 'Browser: ' + n.userAgent + '\nIndirizzo IP pubblico: ' + ip + '\nRete dichiarata: ' + (c.effectiveType || 'n.d.') + ' · ' + (c.downlink != null ? c.downlink + ' Mbit/s' : 'n.d.') + ' · latenza ' + (c.rtt != null ? c.rtt + ' ms' : 'n.d.') +
     '\nOnline: ' + n.onLine + ' · memoria: ' + (n.deviceMemory || 'n.d.') + ' GB · processori: ' + (n.hardwareConcurrency || 'n.d.') + '\nArchivio del browser: ' + mem +
     '\nLettore dei video (service worker): ' + (n.serviceWorker ? (n.serviceWorker.controller ? 'attivo' : 'non attivo') : 'non supportato') + '\nOra: ' + new Date().toLocaleTimeString();
 }

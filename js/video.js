@@ -69,8 +69,15 @@ export class Video {
         this.messaggio(p, t);
         this.stato(p, 'Error');
         const srcErr = v.getAttribute('src') || '';
-        if (/googleapis\.com\/.*alt=media/.test(srcErr)) this.messaggio(p, t + ' Motivo: Google non ha consegnato il video (limite di scarico raggiunto, link scaduto o connessione assente).');
-        else this.diagnosi(p, srcErr, t);
+        if (/googleapis\.com\/.*alt=media/.test(srcErr)) {
+          const base = t + ' Motivo: Google non ha consegnato il video';
+          this.messaggio(p, base + '. Controllo in corso…');
+          this.sondaDiretta(srcErr).then((s) => {
+            if (!p.video || p.video.getAttribute('src') !== srcErr) return;
+            const ce = p.video.error;
+            this.messaggio(p, `${base}. Risposta di Google: ${s.stato || 'nessuna'}${s.det ? ' (' + s.det + ')' : ''}. Errore del video: ${ce ? ce.code + (ce.message ? ' ' + ce.message : '') : '-'}.`);
+          });
+        } else this.diagnosi(p, srcErr, t);
       });
       // Telefono/tablet: il quadratino di schermo intero dei comandi del video e' quello del browser (mostra solo il video, senza elenco clip
       // ne' comandi): lo si sostituisce con lo schermo intero del programma (scena unica con la linguetta delle clip). 24/11/2026.
@@ -99,6 +106,51 @@ export class Video {
     }
     host.classList.add('tk-video-host');
     host.append(p.box);
+  }
+
+  // Chiede a Google, con lo stesso indirizzo del video, perche' non lo consegna (limite di scarico, chiave API, file non piu' condiviso...)
+  // e interrompe subito la lettura: in caso di successo si leggono solo le intestazioni.
+  async sondaDiretta(src) {
+    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 8000);
+    try {
+      const r = await fetch(src, { signal: ac.signal });
+      let det = '';
+      if (!r.ok) {
+        try { const j = JSON.parse(await r.text()); const e = j.error || {}; det = ((e.errors && e.errors[0] && e.errors[0].reason) ? e.errors[0].reason + ': ' : '') + (e.message || ''); } catch (x) {}
+      } else det = ((r.headers.get('content-type') || '') + ' ' + (r.headers.get('content-length') || '')).trim();
+      try { ac.abort(); } catch (x) {}
+      return { stato: r.status, det };
+    } catch (e) { return { stato: 0, det: ((e && e.name) || 'errore') + (e && e.message ? ': ' + e.message : '') }; }
+    finally { clearTimeout(t); }
+  }
+
+  // CONTROLLO DI AVVIO (25/11/2026): se dopo qualche secondo il video non sta andando (schermo nero senza errori) lo si dice a schermo con i dati
+  // tecnici (fonte, stato della rete, immagine, risposta del server): da una foto dello schermo si capisce dove si blocca.
+  vigila(p) {
+    clearTimeout(p.vigilaId);
+    const richiesta = p.richiesta;
+    p.vigilaId = setTimeout(async () => {
+      const v = p.video;
+      if (!v || richiesta !== p.richiesta || !v.getAttribute('src') || p.statoAtteso === 'Stopped' || v.error) return;     // (con un errore il messaggio con il motivo c'e' gia')
+      if (v.readyState >= 3 && v.videoWidth > 0 && !v.paused) return;            // sta andando
+      if (v.readyState >= 2 && v.paused && v.videoWidth > 0) return;             // fermo ma con l'immagine (pausa o «Premi ▶»)
+      const src = v.getAttribute('src');
+      let sonda = '';
+      if (/googleapis\.com/.test(src)) { const s = await this.sondaDiretta(src); sonda = (s.stato || 'nessuna') + (s.det ? ' (' + s.det + ')' : ''); }
+      else {
+        try {
+          const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 6000);
+          const r = await fetch(src, { headers: { Range: 'bytes=0-0' }, signal: ac.signal }); clearTimeout(t);
+          sonda = r.status + (r.headers.get('content-type') ? ' ' + r.headers.get('content-type') : '');
+        } catch (e) { sonda = ((e && e.name) || 'errore') + (e && e.message ? ': ' + e.message : ''); }
+      }
+      if (richiesta !== p.richiesta) return;
+      const fonte = /__drive__\//.test(src) ? 'lettore dei video' : (/googleapis\.com/.test(src) ? 'Google diretto' : 'altro');
+      const dur = isFinite(v.duration) ? Math.round(v.duration) : '?';
+      const testo = `Il video non parte. Fonte: ${fonte}. Rete: ${v.networkState}, pronto: ${v.readyState}, immagine: ${v.videoWidth}x${v.videoHeight}, tempo: ${v.currentTime.toFixed(1)}/${dur}, risposta del server: ${sonda}`;
+      console.warn(testo);
+      this.messaggio(p, testo);
+    }, 5000);
   }
 
   // Rilegge il video con un altro indirizzo (lettura diretta da Google) e riparte dal punto richiesto
@@ -223,6 +275,7 @@ export class Video {
       v.src = ris.url;
       v.addEventListener('loadedmetadata', vai, { once: true });
     }
+    this.vigila(p);
   }
 
   // Telefono/tablet: elenco e video sono uno sopra l'altro; quando parte una clip si fa scorrere la finestra fino al video

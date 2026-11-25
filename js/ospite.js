@@ -35,14 +35,15 @@ export function urlVideoDiretto(api, id, dati) {
   return `${String(api).replace(/\/$/, '')}/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&key=${encodeURIComponent(dati.key)}`;
 }
 
-// Modi diretti di chiedere a Google lo stesso video (si provano in ordine finche' uno funziona): 0 = download diretto «drive.usercontent.google.com»
-// (non usa la chiave API: e' quello che dal PC risponde subito e a pezzi), 1 = API con chiave pubblica, 2 = «drive.google.com/uc».
+// Modi diretti di chiedere a Google lo stesso video (si provano in ordine finche' uno funziona): 0 = API con chiave pubblica (www.googleapis.com),
+// 1 = download diretto «drive.usercontent.google.com» (senza chiave), 2 = «drive.google.com/uc».
 // Con una «chiave di risorsa» si aggiunge come parametro (resourcekey). Restituisce null se quel modo non e' possibile.
 export function urlVideoCandidato(api, id, dati, n) {
   const rk = dati && dati.claves && dati.claves[id];
   const q = rk ? '&resourcekey=' + encodeURIComponent(rk) : '';
-  if (n === 0) return `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t${q}`;
-  if (n === 1) return urlVideoDiretto(api, id, dati);
+  // 0 = API con chiave: nella prova sui due tablet (25/11/2026) e' l'unica che passa; i due indirizzi «drive.…» invece cadono subito
+  if (n === 0) return urlVideoDiretto(api, id, dati);
+  if (n === 1) return `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t${q}`;
   if (n === 2) return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}&confirm=t${q}`;
   return null;
 }

@@ -5,7 +5,7 @@ import { DrivePC, sceltaPC, pcDisponibile } from './drivepc.js';
 import { Video } from './video.js';
 import * as UI from './ui.js';
 import { determinaProfilo, apriGestione, leggiConfigProfili } from './profili.js';
-import { DriveOspite, tokenOspiteDaUrl, messaggioOspite, eWebKit, urlVideoDiretto } from './ospite.js';
+import { DriveOspite, tokenOspiteDaUrl, messaggioOspite, eWebKit, urlVideoCandidato } from './ospite.js';
 import { apriLinkOspiti, formatoData } from './linkospiti.js';
 
 const CFG = window.VPS_CONFIG || {};
@@ -315,11 +315,16 @@ async function passaTokenSW() {
 }
 
 // Indirizzo diretto di Google (chiave API pubblica) per il video di un ospite, oppure null se non e' possibile
-function videoOspiteDiretto(path) {
+// (n = da quale modo di chiedere il video partire: 0 download diretto, 1 API con chiave, 2 download classico)
+function videoOspiteDiretto(path, n = 0) {
   const v = INDICE_VIDEO.get(path);
   if (!v || !drive.ospite || drive.scaduto()) return null;
-  const u = urlVideoDiretto(apiAssoluta(), v.id, drive.datiVideoSW());
-  return u ? { url: u, nome: v.name } : null;
+  for (let i = n; i < 4; i++) {
+    // 3 = ultima risorsa: il lettore dei video (service worker), che chiede il video a Google a pezzi da 8 MB
+    const u = i === 3 ? '__drive__/' + encodeURIComponent(v.id) : urlVideoCandidato(apiAssoluta(), v.id, drive.datiVideoSW(), i);
+    if (u) return { url: u, nome: v.name, candidato: i };
+  }
+  return null;
 }
 
 function risolviVideo(path) {
@@ -332,8 +337,9 @@ function risolviVideo(path) {
   if (drive.pc) return drive.urlVideo(v.id).then((url) => ({ url, nome: v.name }));
   // prova sul PC (avvia_locale): il server locale risponde già a pezzi (Range), non serve il service worker
   if (CFG.MODALITA_LOCALE) return { url: apiAssoluta() + '/files/' + encodeURIComponent(v.id) + '?alt=media', nome: v.name };
-  // ospite su Safari/iPad: il video si legge direttamente da Google (il lettore dei video non riesce a chiedere i pezzi, «Load failed»)
-  if (drive.ospite && eWebKit()) { const d = videoOspiteDiretto(path); if (d) return d; }
+  // OSPITE: il video si chiede direttamente a Google (download senza chiave); se non arriva si provano in ordine l'API con chiave, il download
+  // classico e per ultimo il lettore dei video. Su Safari/iPad il lettore dei video da' «Load failed», su Android resta a volte fermo in caricamento.
+  if (drive.ospite) { const d = videoOspiteDiretto(path, 0); if (d) return d; }
   if (!navigator.serviceWorker?.controller) {
     // pagina non ancora controllata dal service worker (primo caricamento): basta ricaricare
     avviso('Per vedere i video serve ricaricare la pagina una volta (F5).');

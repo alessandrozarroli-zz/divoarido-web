@@ -55,7 +55,7 @@ export class Video {
       dg.className = 'video-diag';
       box.append(v, msg, dg);
       p.box = box; p.video = v; p.msg = msg; p.diag = dg;
-      v.addEventListener('playing', () => { this.messaggio(p, ''); this.diagnostica(p, ''); this.stato(p, 'Playing'); });
+      v.addEventListener('playing', () => { if (p.candidato != null) p.candidatoBuono = p.candidato; this.messaggio(p, ''); this.diagnostica(p, ''); this.stato(p, 'Playing'); });
       v.addEventListener('pause', () => { if (p.statoAtteso !== 'Stopped') this.stato(p, 'Paused'); });
       v.addEventListener('ended', () => this.stato(p, 'Ended'));
       v.addEventListener('waiting', () => this.messaggio(p, 'Caricamento…', true));
@@ -63,18 +63,16 @@ export class Video {
       v.addEventListener('error', () => {
         const err = v.error;
         if (!v.getAttribute('src')) return;
-        // OSPITE: se il lettore dei video (service worker) non riesce, si prova UNA volta a leggere il video direttamente da Google
-        if (/__drive__\//.test(v.getAttribute('src') || '') && p.path && p.provatoDiretto !== p.path && this.ctx.diretto) {
-          const d = this.ctx.diretto(p.path);
-          if (d) { p.provatoDiretto = p.path; p.preferisciDiretto = true; this.riprova(p, d.url); return; }
-        }
+        // OSPITE: se una strada non riesce (il lettore dei video, o un modo diretto) si prova la successiva: download diretto di Google,
+        // API con chiave pubblica, download classico. Ognuna una volta sola per clip.
+        if (this.prossimaStrada(p)) { this.vigila(p); return; }
         let t = 'Impossibile riprodurre il video';
         if (err && err.code === 4) t = 'Formato video non supportato dal browser (serve MP4 H.264 o WebM).';
         else if (err && err.code === 2) t = 'Errore di rete durante la lettura del video dal Drive.';
         this.messaggio(p, t);
         this.stato(p, 'Error');
         const srcErr = v.getAttribute('src') || '';
-        if (/googleapis\.com\/.*alt=media/.test(srcErr)) {
+        if (/googleapis\.com\/.*alt=media|usercontent\.google\.com\/download|drive\.google\.com\/uc\?/.test(srcErr)) {
           const base = t + ' Motivo: Google non ha consegnato il video';
           this.messaggio(p, base + '. Controllo in corso…');
           this.sondaDiretta(srcErr).then((s) => {
@@ -150,7 +148,7 @@ export class Video {
       if (v.readyState >= 2 && v.paused && v.videoWidth > 0) return;             // fermo ma con l'immagine (pausa o «Premi ▶»)
       const src = v.getAttribute('src');
       let sonda = '';
-      if (/googleapis\.com/.test(src)) { const s = await this.sondaDiretta(src); sonda = (s.stato || 'nessuna') + (s.det ? ' (' + s.det + ')' : ''); }
+      if (/googleapis\.com|usercontent\.google\.com|drive\.google\.com/.test(src)) { const s = await this.sondaDiretta(src); sonda = (s.stato || 'nessuna') + (s.det ? ' (' + s.det + ')' : ''); }
       else {
         try {
           const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 6000);
@@ -159,14 +157,29 @@ export class Video {
         } catch (e) { sonda = ((e && e.name) || 'errore') + (e && e.message ? ': ' + e.message : ''); }
       }
       if (richiesta !== p.richiesta) return;
-      const fonte = /__drive__\//.test(src) ? 'lettore dei video' : (/googleapis\.com/.test(src) ? 'Google diretto' : 'altro');
+      const fonte = /__drive__\//.test(src) ? 'lettore dei video' : (/googleapis\.com/.test(src) ? 'Google diretto (API con chiave)' : (/usercontent\.google\.com/.test(src) ? 'Google diretto (download)' : (/drive\.google\.com/.test(src) ? 'Google diretto (classico)' : 'altro')));
       const dur = isFinite(v.duration) ? Math.round(v.duration) : '?';
       const lettore = navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'attivo' : 'NON attivo') : 'non supportato';
       const testo = `Il video non parte. Fonte: ${fonte}. Lettore dei video: ${lettore}. Rete: ${v.networkState}, pronto: ${v.readyState}, immagine: ${v.videoWidth}x${v.videoHeight}, tempo: ${v.currentTime.toFixed(1)}/${dur}, risposta del server: ${sonda}`;
       console.warn(testo);
       this.diagnostica(p, testo);
+      // video fermo in caricamento senza errori: si passa alla strada successiva (ospiti); se non ce ne sono altre si spiega
+      if (v.readyState < 2 && this.prossimaStrada(p)) { this.vigila(p); return; }
       if (/AbortError|Failed to fetch|Load failed|nessuna/.test(sonda)) this.messaggio(p, SUGGERIMENTO_RETE);
-    }, 3500);
+    }, 5000);
+  }
+
+  // OSPITE: passa alla strada successiva per chiedere il video (0 download diretto, 1 API con chiave, 2 download classico, 3 lettore dei video).
+  // Restituisce false se non ce ne sono altre (o se non e' un ospite).
+  prossimaStrada(p) {
+    if (!this.ctx.diretto || !p.path || !p.video) return false;
+    const src = p.video.getAttribute('src') || '';
+    const prossimo = p.candidato != null ? p.candidato + 1 : (/__drive__\//.test(src) ? 4 : 0);
+    const d = prossimo <= 3 ? this.ctx.diretto(p.path, prossimo) : null;
+    if (!d) return false;
+    p.candidato = d.candidato; p.preferisciDiretto = true;
+    this.riprova(p, d.url);
+    return true;
   }
 
   // Rilegge il video con un altro indirizzo (lettura diretta da Google) e riparte dal punto richiesto
@@ -271,7 +284,8 @@ export class Video {
       return;
     }
     // se per questo ospite il lettore dei video e' gia' fallito, si legge subito direttamente da Google
-    if (p.preferisciDiretto && this.ctx.diretto) { const d = this.ctx.diretto(path); if (d) ris = d; }
+    if (p.preferisciDiretto && this.ctx.diretto) { const d = this.ctx.diretto(path, p.candidatoBuono != null ? p.candidatoBuono : 0); if (d) ris = d; }
+    p.candidato = ris.candidato != null ? ris.candidato : null;
     p.ultimoStart = start;
     p.stop = stop != null ? stop : null;
     p.statoAtteso = null;

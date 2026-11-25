@@ -170,11 +170,16 @@ async function proveAnonime() {
   await provaVideo('Video drive.google.com/uc', `https://drive.google.com/uc?export=download&id=${encodeURIComponent(c.id)}&confirm=t`, { salto: false, riproduci: false });
   titolo('5. Lettore dei video della pagina (service worker)');
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    // come fa il programma: si consegnano al lettore la chiave e l'indirizzo, altrimenti dovrebbe chiederli alla pagina
+    try { navigator.serviceWorker.controller.postMessage({ tipo: 'ospite', api: c.api, key: c.key, claves: {} }); } catch (e) {}
+    await attesa(300);
     const t0 = performance.now(); const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 12000);
     try { const r = await fetch('__drive__/' + encodeURIComponent(c.id), { headers: { Range: 'bytes=0-1' }, signal: ac.signal }); registra('Lettore dei video', r.status === 206 ? 'ok' : 'ko', 'stato ' + r.status + ' in ' + Math.round(performance.now() - t0) + ' ms'); }
     catch (e) { registra('Lettore dei video', 'ko', ((e && e.name) || '') + ' ' + ((e && e.message) || '') + ' dopo ' + Math.round(performance.now() - t0) + ' ms'); }
     finally { clearTimeout(t); }
-  } else registra('Lettore dei video', 'av', 'non attivo su questa pagina (ricarica con un normale F5)');
+    // il video aperto dal lettore a pezzi (chiede a Google 8 MB per volta): e' la strada originale del programma per gli ospiti
+    await provaVideo('Video dal lettore a pezzi', '__drive__/' + encodeURIComponent(c.id));
+  } else registra('Lettore dei video', 'av', 'non attivo su questa pagina: ricarica con un normale F5 (non Ctrl+F5) e premi di nuovo «Avvia le prove»');
 }
 
 // ---------- prove con l'account Google ----------

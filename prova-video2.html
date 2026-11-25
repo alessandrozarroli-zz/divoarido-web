@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer-when-downgrade">
+<title>Prove video 2</title>
+<style>
+  body { font: 15px/1.45 system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; margin: 12px; }
+  h2 { margin: 0 0 6px; } h3 { margin: 14px 0 4px; font-size: 15px; color: #c4b5fd; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #1e293b; padding: 6px 10px; border-radius: 6px; margin: 3px 0; font-size: 12.5px; }
+  .ok { color: #86efac; } .ko { color: #fca5a5; } .av { color: #fcd34d; } .nota { color: #94a3b8; }
+  button { font-size: 16px; padding: 10px 16px; border-radius: 8px; border: 0; margin: 4px 6px 4px 0; background: #8b5cf6; color: #fff; }
+  button.sec { background: #334155; }
+  #riep { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; }
+  .chip { font-size: 12px; padding: 3px 8px; border-radius: 12px; background: #1e293b; border: 1px solid #334155; }
+  .chip.ok { border-color: #22c55e; } .chip.ko { border-color: #ef4444; } .chip.av { border-color: #f59e0b; }
+  video { width: 100%; max-height: 110px; background: #000; margin-top: 3px; }
+</style>
+<script src="js/config.js"></script>
+</head>
+<body>
+<h2>Prove video 2</h2>
+<p class="nota">1) Premi «Avvia le prove» e aspetta circa 2 minuti, senza cambiare scheda. 2) Poi, se vuoi, premi «Accedi con Google e prova»: ripete le prove con il tuo account.
+3) Manda la foto dello schermo oppure premi «Copia risultati» e incollali nella chat. Apri questa pagina con il codice del link ospite: …/prova-video2.html#o=CODICE
+(per le sole prove con l'account basta …/prova-video2.html#v=IDDELFILE).</p>
+<div>
+  <button id="avvia">Avvia le prove</button>
+  <button id="google" class="sec">Accedi con Google e prova</button>
+  <button id="copia" class="sec">Copia risultati</button>
+</div>
+<div id="riep"></div>
+<pre id="info">Preparo…</pre>
+<div id="out"></div>
+<script type="module">
+import { DriveOspite, tokenOspiteDaUrl } from './js/ospite.js';
+
+const CFG = window.VPS_CONFIG || {};
+const $ = (id) => document.getElementById(id);
+const out = $('out');
+const attesa = (ms) => new Promise((x) => setTimeout(x, ms));
+const H = new URLSearchParams(location.hash.replace(/^#/, ''));
+const R = [];               // risultati: {nome, esito: 'ok'|'ko'|'av', testo}
+let ctx = null;             // {api, id, key, nomeVideo, dimMB}
+let inCorso = false;
+
+function riepilogo() {
+  $('riep').innerHTML = '';
+  for (const r of R) { const c = document.createElement('span'); c.className = 'chip ' + r.esito; c.textContent = (r.esito === 'ok' ? '✓ ' : r.esito === 'ko' ? '✗ ' : '! ') + r.nome; $('riep').append(c); }
+}
+function registra(nome, esito, testo) {
+  R.push({ nome, esito, testo });
+  const p = document.createElement('pre'); p.className = esito; p.textContent = nome + ': ' + testo; out.append(p);
+  riepilogo();
+}
+const titolo = (t) => { const h = document.createElement('h3'); h.textContent = t; out.append(h); };
+const mediana = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : null; };
+
+// ---------- informazioni sul dispositivo ----------
+async function info() {
+  const n = navigator, c = n.connection || {};
+  let mem = 'n.d.';
+  try { const e = await n.storage.estimate(); mem = 'spazio per il sito ' + Math.round(e.quota / 1048576) + ' MB, usato ' + Math.round(e.usage / 1048576) + ' MB'; } catch (e) {}
+  $('info').textContent = 'Browser: ' + n.userAgent + '\nRete dichiarata: ' + (c.effectiveType || 'n.d.') + ' · ' + (c.downlink != null ? c.downlink + ' Mbit/s' : 'n.d.') + ' · latenza ' + (c.rtt != null ? c.rtt + ' ms' : 'n.d.') +
+    '\nOnline: ' + n.onLine + ' · memoria: ' + (n.deviceMemory || 'n.d.') + ' GB · processori: ' + (n.hardwareConcurrency || 'n.d.') + '\nArchivio del browser: ' + mem +
+    '\nLettore dei video (service worker): ' + (n.serviceWorker ? (n.serviceWorker.controller ? 'attivo' : 'non attivo') : 'non supportato') + '\nOra: ' + new Date().toLocaleTimeString();
+}
+
+// ---------- strumenti ----------
+function creaVideo() {
+  const v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.preload = 'metadata'; v.controls = true;
+  v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
+  out.append(v); return v;
+}
+function quando(v, ev, ms) {
+  return new Promise((ok) => {
+    let fine = false;
+    const chiudi = (r) => { if (fine) return; fine = true; clearTimeout(t); v.removeEventListener(ev, f); v.removeEventListener('error', g); ok(r); };
+    const f = () => chiudi({ ev });
+    const g = () => chiudi({ err: v.error ? v.error.code : '?' });
+    const t = setTimeout(() => chiudi({ timeout: true }), ms);
+    v.addEventListener(ev, f); v.addEventListener('error', g);
+  });
+}
+function esito(r) { return r.ev ? 'ok' : r.err ? 'errore ' + r.err : 'nessuna risposta'; }
+
+async function provaVideo(nome, url, { salto = true, riproduci = true } = {}) {
+  const v = creaVideo(); const t0 = performance.now();
+  v.src = url; v.load();
+  const m = await quando(v, 'loadedmetadata', 15000);
+  const tm = Math.round(performance.now() - t0);
+  registra(nome + ' · apertura', m.ev ? 'ok' : 'ko', esito(m) + ' in ' + tm + ' ms' + (m.ev ? ' · ' + v.videoWidth + 'x' + v.videoHeight + ' · durata ' + Math.round(v.duration) + ' s' : ''));
+  if (m.ev && salto) {
+    const dest = Math.min(2400, Math.floor(v.duration / 2)); const ts = performance.now();
+    v.currentTime = dest;
+    const s = await quando(v, 'seeked', 25000);
+    registra(nome + ' · salto a ' + Math.round(dest / 60) + ' min', s.ev ? 'ok' : 'ko', esito(s) + ' in ' + Math.round(performance.now() - ts) + ' ms · pronto ' + v.readyState);
+  }
+  if (m.ev && riproduci) {
+    let attese = 0; const inc = () => attese++; v.addEventListener('waiting', inc);
+    try { await v.play(); } catch (e) { registra(nome + ' · riproduzione', 'av', 'play() rifiutato: ' + e.name); }
+    const c0 = v.currentTime; await attesa(15000);
+    const avanz = v.currentTime - c0; v.pause(); v.removeEventListener('waiting', inc);
+    registra(nome + ' · riproduzione 15 s', avanz >= 12 ? 'ok' : avanz >= 6 ? 'av' : 'ko', 'avanzato ' + avanz.toFixed(1) + ' s su 15 · interruzioni: ' + attese);
+  }
+  try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
+  v.remove();
+}
+
+// richieste piccole, una dopo l'altra: quante riescono e in quanto tempo
+async function raffica(nome, url, intest, n = 8) {
+  const tempi = []; let ko = 0, ultimo = '';
+  for (let i = 0; i < n; i++) {
+    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 10000); const t0 = performance.now();
+    try { const r = await fetch(url + '&n=' + i, { headers: intest, signal: ac.signal }); tempi.push(Math.round(performance.now() - t0)); if (!(r.status === 206 || r.status === 200)) { ko++; ultimo = 'stato ' + r.status; } try { await r.arrayBuffer(); } catch (e) {} }
+    catch (e) { ko++; ultimo = (e && e.name) + ' ' + (e && e.message); tempi.push(Math.round(performance.now() - t0)); }
+    finally { clearTimeout(t); }
+    await attesa(300);
+  }
+  registra(nome, ko === 0 ? 'ok' : ko < n ? 'av' : 'ko', (n - ko) + '/' + n + ' riuscite · tempo tipico ' + mediana(tempi) + ' ms · massimo ' + Math.max(...tempi) + ' ms' + (ultimo ? ' · ultimo errore: ' + ultimo : ''));
+}
+
+// scarico di un intervallo (8 MB): velocita' reale
+async function velocita(nome, url, intest, offset) {
+  const MB = 8, a = offset, b = offset + MB * 1048576 - 1;
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 40000); const t0 = performance.now();
+  try {
+    const r = await fetch(url, { headers: Object.assign({ Range: 'bytes=' + a + '-' + b }, intest), signal: ac.signal });
+    const buf = await r.arrayBuffer(); const s = (performance.now() - t0) / 1000;
+    registra(nome, r.status === 206 && buf.byteLength > MB * 1048576 * 0.9 ? 'ok' : 'av', 'stato ' + r.status + ' · ' + (buf.byteLength / 1048576).toFixed(1) + ' MB in ' + s.toFixed(1) + ' s = ' + ((buf.byteLength * 8) / 1e6 / s).toFixed(1) + ' Mbit/s');
+  } catch (e) { registra(nome, 'ko', 'non riuscito: ' + ((e && e.name) || '') + ' ' + ((e && e.message) || '') + ' dopo ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s'); }
+  finally { clearTimeout(t); }
+}
+
+// ---------- preparazione ----------
+async function preparaContesto() {
+  if (ctx) return ctx;
+  const codice = tokenOspiteDaUrl();
+  const api = 'https://www.googleapis.com/drive/v3';
+  if (codice) {
+    const d = new DriveOspite(CFG, codice); await d.apri();
+    const dati = d.datiVideoSW(); const g = (d.info.gare || []).filter((x) => x.v)[0];
+    if (!g) throw new Error('nessun video nel link');
+    ctx = { api: String(d.api || api).replace(/\/$/, ''), id: g.v, key: dati.key, nomeVideo: g.r || g.n, dimMB: g.z ? Math.round(g.z / 1048576) : 0 };
+  } else if (H.get('v')) {
+    ctx = { api, id: H.get('v'), key: '', nomeVideo: '(file indicato nell\'indirizzo)', dimMB: 0 };
+  } else throw new Error('manca il codice del link (…#o=CODICE) o il file (…#v=ID)');
+  return ctx;
+}
+const urlApi = (c, extra) => `${c.api}/files/${encodeURIComponent(c.id)}?alt=media&supportsAllDrives=true${extra || ''}`;
+
+// ---------- prove anonime (chiave pubblica del link) ----------
+async function proveAnonime() {
+  const c = await preparaContesto();
+  if (!c.key) { registra('Chiave API', 'av', 'assente: salto le prove anonime'); return; }
+  const u = urlApi(c, '&key=' + encodeURIComponent(c.key));
+  const dimOff = (c.dimMB || 900) * 1048576;
+  titolo('Video provato: ' + c.nomeVideo + (c.dimMB ? ' (' + c.dimMB + ' MB)' : ''));
+  titolo('1. Richieste piccole di seguito (anonime, API con chiave)');
+  await raffica('Piccole CON intestazione Range (come il lettore)', u, { Range: 'bytes=0-1' });
+  await raffica('Piccole SENZA intestazione Range', u, {});
+  titolo('2. Velocita\' reale verso Google (8 MB per volta)');
+  await velocita('Intervallo a 40%', u, {}, Math.floor(dimOff * 0.4));
+  await velocita('Intervallo a 70%', u, {}, Math.floor(dimOff * 0.7));
+  titolo('3. Lettura come il video della pagina (API con chiave)');
+  await provaVideo('Video API', u);
+  titolo('4. Altri indirizzi di Google');
+  await provaVideo('Video usercontent', `https://drive.usercontent.google.com/download?id=${encodeURIComponent(c.id)}&export=download&confirm=t`, { salto: false, riproduci: false });
+  await provaVideo('Video drive.google.com/uc', `https://drive.google.com/uc?export=download&id=${encodeURIComponent(c.id)}&confirm=t`, { salto: false, riproduci: false });
+  titolo('5. Lettore dei video della pagina (service worker)');
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    const t0 = performance.now(); const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 12000);
+    try { const r = await fetch('__drive__/' + encodeURIComponent(c.id), { headers: { Range: 'bytes=0-1' }, signal: ac.signal }); registra('Lettore dei video', r.status === 206 ? 'ok' : 'ko', 'stato ' + r.status + ' in ' + Math.round(performance.now() - t0) + ' ms'); }
+    catch (e) { registra('Lettore dei video', 'ko', ((e && e.name) || '') + ' ' + ((e && e.message) || '') + ' dopo ' + Math.round(performance.now() - t0) + ' ms'); }
+    finally { clearTimeout(t); }
+  } else registra('Lettore dei video', 'av', 'non attivo su questa pagina (ricarica con un normale F5)');
+}
+
+// ---------- prove con l'account Google ----------
+function caricaGis() {
+  return new Promise((ok, ko) => {
+    if (window.google && google.accounts && google.accounts.oauth2) return ok();
+    const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.onload = ok; s.onerror = () => ko(new Error('login di Google non raggiungibile')); document.head.append(s);
+  });
+}
+function tokenGoogle() {
+  return caricaGis().then(() => new Promise((ok, ko) => {
+    const cl = google.accounts.oauth2.initTokenClient({ client_id: CFG.GOOGLE_CLIENT_ID, scope: 'https://www.googleapis.com/auth/drive.readonly',
+      callback: (r) => (r.error ? ko(new Error(r.error)) : ok(r.access_token)), error_callback: (e) => ko(new Error((e && e.type) || 'accesso annullato')) });
+    cl.requestAccessToken({ prompt: '' });
+  }));
+}
+async function proveAccount() {
+  titolo('PROVE CON L\'ACCOUNT GOOGLE (accesso identificato)');
+  const c = await preparaContesto();
+  let tok;
+  try { tok = await tokenGoogle(); } catch (e) { registra('Accesso con Google', 'ko', (e && e.message) || String(e)); return; }
+  registra('Accesso con Google', 'ok', 'riuscito');
+  const u = urlApi(c);
+  const dimOff = (c.dimMB || 900) * 1048576;
+  const auth = { Authorization: 'Bearer ' + tok };
+  await raffica('[Account] Piccole con Range', u, Object.assign({ Range: 'bytes=0-1' }, auth));
+  await velocita('[Account] Intervallo a 40%', u, auth, Math.floor(dimOff * 0.4));
+  await velocita('[Account] Intervallo a 70%', u, auth, Math.floor(dimOff * 0.7));
+  await provaVideo('[Account] Video', urlApi(c, '&access_token=' + encodeURIComponent(tok)));
+}
+
+async function esegui(fn) {
+  if (inCorso) return; inCorso = true; $('avvia').disabled = true; $('google').disabled = true;
+  try { await fn(); } catch (e) { registra('Errore', 'ko', (e && e.message) || String(e)); }
+  titolo('Fine: ' + new Date().toLocaleTimeString());
+  inCorso = false; $('avvia').disabled = false; $('google').disabled = false; await info();
+}
+$('avvia').onclick = () => esegui(proveAnonime);
+$('google').onclick = () => esegui(proveAccount);
+$('copia').onclick = async () => {
+  const t = $('info').textContent + '\n\n' + R.map((r) => (r.esito === 'ok' ? 'OK  ' : r.esito === 'ko' ? 'KO  ' : 'AV  ') + r.nome + ': ' + r.testo).join('\n');
+  try { await navigator.clipboard.writeText(t); $('copia').textContent = 'Copiato!'; } catch (e) { $('copia').textContent = 'Copia non riuscita: usa la foto'; }
+  setTimeout(() => { $('copia').textContent = 'Copia risultati'; }, 2500);
+};
+await info();
+</script>
+</body>
+</html>

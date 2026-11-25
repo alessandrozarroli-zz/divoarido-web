@@ -51,6 +51,11 @@ export class Video {
       v.preload = 'auto';
       const msg = document.createElement('div');
       msg.className = 'video-msg';
+      // registro degli eventi del video (con i tempi dall'impostazione dell'indirizzo): serve a capire dove si blocca il caricamento
+      p.log = [];
+      for (const ev of ['loadstart', 'durationchange', 'loadedmetadata', 'loadeddata', 'canplay', 'playing', 'waiting', 'stalled', 'suspend', 'abort', 'emptied', 'error', 'seeking', 'seeked']) {
+        v.addEventListener(ev, () => { p.log.push(Math.round((performance.now() - (p.t0 || 0)) / 100) / 10 + 's ' + ev); if (p.log.length > 16) p.log.shift(); });
+      }
       const dg = document.createElement('div');       // riga di diagnosi FISSA: resta anche quando passa la clip dopo, finche' un video non parte davvero
       dg.className = 'video-diag';
       box.append(v, msg, dg);
@@ -160,7 +165,8 @@ export class Video {
       const fonte = /__drive__\//.test(src) ? 'lettore dei video' : (/googleapis\.com/.test(src) ? 'Google diretto (API con chiave)' : (/usercontent\.google\.com/.test(src) ? 'Google diretto (download)' : (/drive\.google\.com/.test(src) ? 'Google diretto (classico)' : 'altro')));
       const dur = isFinite(v.duration) ? Math.round(v.duration) : '?';
       const lettore = navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'attivo' : 'NON attivo') : 'non supportato';
-      const testo = `Il video non parte. Fonte: ${fonte}. Lettore dei video: ${lettore}. Rete: ${v.networkState}, pronto: ${v.readyState}, immagine: ${v.videoWidth}x${v.videoHeight}, tempo: ${v.currentTime.toFixed(1)}/${dur}, risposta del server: ${sonda}`;
+      let dove = ''; try { const uu = new URL(src, location.href); dove = uu.host + uu.pathname.replace(/(files\/)[^/]+/, '$1…').slice(0, 60); } catch (e) {}
+      const testo = `Il video non parte. Fonte: ${fonte} (${dove}). Lettore dei video: ${lettore}. Rete: ${v.networkState}, pronto: ${v.readyState}, immagine: ${v.videoWidth}x${v.videoHeight}, tempo: ${v.currentTime.toFixed(1)}/${dur}, in pausa: ${v.paused}, pagina: ${document.visibilityState}, risposta del server: ${sonda}. Eventi: ${(p.log || []).join(' ') || 'nessuno'}`;
       console.warn(testo);
       this.diagnostica(p, testo);
       // video fermo in caricamento senza errori: si passa alla strada successiva (ospiti); se non ce ne sono altre si spiega
@@ -186,6 +192,7 @@ export class Video {
   riprova(p, url) {
     const v = p.video, start = p.ultimoStart || 0;
     this.messaggio(p, 'Caricamento del video…', true);
+    p.t0 = performance.now(); p.log = [];
     v.src = url;
     v.addEventListener('loadedmetadata', () => { try { v.currentTime = start; } catch (e) {} const pr = v.play(); if (pr) pr.catch(() => {}); }, { once: true });
   }
@@ -302,6 +309,7 @@ export class Video {
     } else {
       p.path = path;
       this.messaggio(p, 'Caricamento del video…', true);
+      p.t0 = performance.now(); p.log = [];
       v.src = ris.url;
       v.addEventListener('loadedmetadata', vai, { once: true });
     }

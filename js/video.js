@@ -4,6 +4,8 @@
 // Quando Google non risponde ai video, nella pratica e' la rete (filtri di sicurezza di una rete aziendale, scolastica o di un circolo)
 const SUGGERIMENTO_RETE = 'Il video non arriva: la rete su cui sei sembra bloccare o rallentare i video di Google. Prova con i dati mobili (o un\'altra rete) oppure chiedi a chi gestisce la rete di consentire www.googleapis.com, drive.usercontent.google.com e *.googleusercontent.com.';
 
+const NOMI_STRADE = ['lettore a pezzi', 'API con chiave', 'download diretto', 'download classico'];
+
 export class Video {
   constructor(ctx) {
     this.ctx = ctx;               // {elementoWidget(id), risolvi(path) -> {url, nome} | null, invia(azione)}
@@ -48,7 +50,8 @@ export class Video {
       const v = document.createElement('video');
       v.playsInline = true;
       v.controls = true;
-      v.preload = 'auto';
+      // telefoni e tablet: non caricare in anticipo tutto il file (con reti deboli satura il collegamento); la pagina di prove, con «metadata», funzionava
+      v.preload = document.documentElement.classList.contains('tocco') ? 'metadata' : 'auto';
       const msg = document.createElement('div');
       msg.className = 'video-msg';
       // registro degli eventi del video (con i tempi dall'impostazione dell'indirizzo): serve a capire dove si blocca il caricamento
@@ -60,7 +63,7 @@ export class Video {
       dg.className = 'video-diag';
       box.append(v, msg, dg);
       p.box = box; p.video = v; p.msg = msg; p.diag = dg;
-      v.addEventListener('playing', () => { if (p.candidato != null) p.candidatoBuono = p.candidato; this.messaggio(p, ''); this.diagnostica(p, ''); this.stato(p, 'Playing'); });
+      v.addEventListener('playing', () => { if (p.candidato != null) p.candidatoBuono = p.candidato; p.storia = []; p.inizioProssima = 0; this.messaggio(p, ''); this.diagnostica(p, ''); this.stato(p, 'Playing'); });
       v.addEventListener('pause', () => { if (p.statoAtteso !== 'Stopped') this.stato(p, 'Paused'); });
       v.addEventListener('ended', () => this.stato(p, 'Ended'));
       v.addEventListener('waiting', () => this.messaggio(p, 'Caricamento…', true));
@@ -70,7 +73,7 @@ export class Video {
         if (!v.getAttribute('src')) return;
         // OSPITE: se una strada non riesce (il lettore dei video, o un modo diretto) si prova la successiva: download diretto di Google,
         // API con chiave pubblica, download classico. Ognuna una volta sola per clip.
-        if (this.prossimaStrada(p)) { this.vigila(p); return; }
+        if (this.prossimaStrada(p, 'errore ' + (err ? err.code : '?') + ' dopo ' + (Math.round((performance.now() - (p.t0 || 0)) / 100) / 10) + ' s')) { this.vigila(p); return; }
         let t = 'Impossibile riprodurre il video';
         if (err && err.code === 4) t = 'Formato video non supportato dal browser (serve MP4 H.264 o WebM).';
         else if (err && err.code === 2) t = 'Errore di rete durante la lettura del video dal Drive.';
@@ -121,7 +124,8 @@ export class Video {
   // Riga di diagnosi che non sparisce al cambio di clip (si toglie solo quando un video parte davvero)
   diagnostica(p, t) {
     if (!p.diag) return;
-    p.diag.textContent = t ? '[' + new Date().toLocaleTimeString() + '] ' + t : '';
+    const st = p.storia && p.storia.length ? '  ||  Strade provate: ' + p.storia.join(' → ') : '';
+    p.diag.textContent = t ? '[' + new Date().toLocaleTimeString() + '] ' + t + st : '';
     p.diag.classList.toggle('vis', !!t);
   }
 
@@ -170,19 +174,24 @@ export class Video {
       console.warn(testo);
       this.diagnostica(p, testo);
       // video fermo in caricamento senza errori: si passa alla strada successiva (ospiti); se non ce ne sono altre si spiega
-      if (v.readyState < 2 && this.prossimaStrada(p)) { this.vigila(p); return; }
+      if (v.readyState < 2 && this.prossimaStrada(p, 'fermo (rete ' + v.networkState + ', pronto ' + v.readyState + ') dopo ' + (Math.round((performance.now() - (p.t0 || 0)) / 100) / 10) + ' s')) { this.vigila(p); return; }
       if (/AbortError|Failed to fetch|Load failed|nessuna/.test(sonda)) this.messaggio(p, SUGGERIMENTO_RETE);
     }, 5000);
   }
 
   // OSPITE: passa alla strada successiva per chiedere il video (0 download diretto, 1 API con chiave, 2 download classico, 3 lettore dei video).
   // Restituisce false se non ce ne sono altre (o se non e' un ospite).
-  prossimaStrada(p) {
+  prossimaStrada(p, motivo) {
     if (!this.ctx.diretto || !p.path || !p.video) return false;
     const src = p.video.getAttribute('src') || '';
     const prossimo = p.candidato != null ? p.candidato + 1 : (/__drive__\//.test(src) ? 4 : 0);
     const d = prossimo <= 3 ? this.ctx.diretto(p.path, prossimo) : null;
     if (!d) return false;
+    // registro delle strade provate (resta nella riga di diagnosi) e punto di partenza per la clip successiva: se la sequenza passa alla clip dopo
+    // prima che la catena sia finita, la clip dopo riparte dalla strada successiva e non da quella che non ha portato il video
+    (p.storia = p.storia || []).push(new Date().toLocaleTimeString() + ' ' + (NOMI_STRADE[p.candidato] || '?') + ': ' + (motivo || '?'));
+    if (p.storia.length > 8) p.storia.shift();
+    p.inizioProssima = d.candidato;
     p.candidato = d.candidato; p.preferisciDiretto = true;
     this.riprova(p, d.url);
     return true;
@@ -291,7 +300,7 @@ export class Video {
       return;
     }
     // se per questo ospite il lettore dei video e' gia' fallito, si legge subito direttamente da Google
-    if (p.preferisciDiretto && this.ctx.diretto) { const d = this.ctx.diretto(path, p.candidatoBuono != null ? p.candidatoBuono : 0); if (d) ris = d; }
+    if (p.preferisciDiretto && this.ctx.diretto) { const d = this.ctx.diretto(path, p.candidatoBuono != null ? p.candidatoBuono : (p.inizioProssima || 0)); if (d) ris = d; }
     p.candidato = ris.candidato != null ? ris.candidato : null;
     p.ultimoStart = start;
     p.stop = stop != null ? stop : null;

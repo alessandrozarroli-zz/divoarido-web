@@ -6,6 +6,11 @@ const SUGGERIMENTO_RETE = 'Il video non arriva: la rete su cui sei sembra blocca
 
 const NOMI_STRADE = ['lettore a pezzi', 'API con chiave', 'download diretto', 'download classico'];
 
+// RETE CHE VA E VIENE (25/11/2026): quando tutte le strade falliscono (anche a meta' clip) non ci si ferma: dopo una breve attesa si riparte da capo
+// dal punto in cui il video si era fermato, fino a MAX_RIPROVE_RETE volte. Se la rete torna il video riprende da solo.
+const ATTESA_RIPROVA_S = 12;
+const MAX_RIPROVE_RETE = 8;
+
 export class Video {
   constructor(ctx) {
     this.ctx = ctx;               // {elementoWidget(id), risolvi(path) -> {url, nome} | null, invia(azione)}
@@ -63,7 +68,7 @@ export class Video {
       dg.className = 'video-diag';
       box.append(v, msg, dg);
       p.box = box; p.video = v; p.msg = msg; p.diag = dg;
-      v.addEventListener('playing', () => { if (p.candidato != null) p.candidatoBuono = p.candidato; p.storia = []; p.inizioProssima = 0; this.messaggio(p, ''); this.diagnostica(p, ''); this.stato(p, 'Playing'); });
+      v.addEventListener('playing', () => { if (p.candidato != null) p.candidatoBuono = p.candidato; p.storia = []; p.inizioProssima = 0; p.tentativiRete = 0; p.riprovaAttiva = false; clearTimeout(p.riprovaId); this.messaggio(p, ''); this.diagnostica(p, ''); this.stato(p, 'Playing'); });
       v.addEventListener('pause', () => { if (p.statoAtteso !== 'Stopped') this.stato(p, 'Paused'); });
       // salto dentro lo stesso video (clip successiva della stessa partita): se non si e' fermato l'evento «playing» non arriva, ma il video gira:
       // il programma aspetta lo stato «Playing» prima di far partire il conto della clip
@@ -80,18 +85,20 @@ export class Video {
         let t = 'Impossibile riprodurre il video';
         if (err && err.code === 4) t = 'Formato video non supportato dal browser (serve MP4 H.264 o WebM).';
         else if (err && err.code === 2) t = 'Errore di rete durante la lettura del video dal Drive.';
-        this.messaggio(p, t);
         this.stato(p, 'Error');
+        const riprovo = this.programmaRiprova(p);      // true = il messaggio a schermo e' il conto alla rovescia del nuovo tentativo
+        if (!riprovo) this.messaggio(p, t);
         const srcErr = v.getAttribute('src') || '';
         if (/googleapis\.com\/.*alt=media|usercontent\.google\.com\/download|drive\.google\.com\/uc\?/.test(srcErr)) {
           const base = t + ' Motivo: Google non ha consegnato il video';
-          this.messaggio(p, base + '. Controllo in corso…');
+          if (!riprovo) this.messaggio(p, base + '. Controllo in corso…');
           this.sondaDiretta(srcErr).then((s) => {
             if (!p.video || p.video.getAttribute('src') !== srcErr) return;
             const ce = p.video.error;
             const tx = `${base}. Risposta di Google: ${s.stato || 'nessuna'}${s.det ? ' (' + s.det + ')' : ''}. Errore del video: ${ce ? ce.code + (ce.message ? ' ' + ce.message : '') : '-'}.`;
             // nessuna risposta di Google = quasi sempre una rete con filtri di sicurezza che blocca o rallenta i video: lo si dice chiaro
-            this.messaggio(p, s.stato ? tx : SUGGERIMENTO_RETE); this.diagnostica(p, tx);
+            if (!p.riprovaAttiva) this.messaggio(p, s.stato ? tx : SUGGERIMENTO_RETE);
+            this.diagnostica(p, tx);
           });
         } else this.diagnosi(p, srcErr, t);
       });
@@ -114,6 +121,7 @@ export class Video {
         Promise.resolve(nativoFuori()).catch(() => {}).then(apriScena);
       });
       v.addEventListener('timeupdate', () => {
+        if (v.currentTime > 0 && !v.error) p.ultimoTempo = v.currentTime;       // per ripartire da qui dopo una caduta di rete
         if (p.stop != null && v.currentTime >= p.stop) { p.stop = null; v.pause(); }
         if (p.score) this.disegnaPunteggio(p);
       });
@@ -178,6 +186,7 @@ export class Video {
       this.diagnostica(p, testo);
       // video fermo in caricamento senza errori: si passa alla strada successiva (ospiti); se non ce ne sono altre si spiega
       if (v.readyState < 2 && this.prossimaStrada(p, 'fermo (rete ' + v.networkState + ', pronto ' + v.readyState + ') dopo ' + (Math.round((performance.now() - (p.t0 || 0)) / 100) / 10) + ' s')) { this.vigila(p); return; }
+      if (v.readyState < 2 && this.programmaRiprova(p)) return;
       if (/AbortError|Failed to fetch|Load failed|nessuna/.test(sonda)) this.messaggio(p, SUGGERIMENTO_RETE);
     }, 5000);
   }
@@ -198,6 +207,41 @@ export class Video {
     p.candidato = d.candidato; p.preferisciDiretto = true;
     this.riprova(p, d.url);
     return true;
+  }
+
+  // Nuovo tentativo dopo una caduta di rete: conto alla rovescia a schermo, poi si ricarica il video dal punto in cui si era fermato (ripartendo dalla
+  // prima strada). Restituisce false se i tentativi sono finiti (allora resta il messaggio con il motivo). Se nel frattempo il programma passa a un'altra
+  // clip (richiesta diversa) il conto si annulla da solo: la clip nuova ricomincia comunque la sua catena.
+  programmaRiprova(p) {
+    if (!p.video || !p.path || p.statoAtteso === 'Stopped') return false;
+    if ((p.tentativiRete || 0) >= MAX_RIPROVE_RETE) return false;
+    const n = p.tentativiRete = (p.tentativiRete || 0) + 1;
+    const richiesta = p.richiesta;
+    clearTimeout(p.riprovaId);
+    p.riprovaAttiva = true;
+    let resto = ATTESA_RIPROVA_S;
+    const tick = () => {
+      if (richiesta !== p.richiesta || !p.video || p.statoAtteso === 'Stopped') { p.riprovaAttiva = false; return; }
+      if (resto <= 0) { this.riprovaDaCapo(p); return; }
+      this.messaggio(p, `Il video non arriva (rete instabile). Riprovo tra ${resto} s… (tentativo ${n} di ${MAX_RIPROVE_RETE})`, true);
+      resto--;
+      p.riprovaId = setTimeout(tick, 1000);
+    };
+    tick();
+    return true;
+  }
+
+  riprovaDaCapo(p) {
+    p.riprovaAttiva = false;
+    const v = p.video;
+    if (!v || !p.path) return;
+    if (v.readyState >= 3 && !v.error) return;           // nel frattempo il video si e' ripreso da solo
+    const start = p.ultimoTempo != null ? p.ultimoTempo : (p.ultimoStart || 0);
+    const path = p.path, stop = p.stop;
+    p.inizioProssima = 0;
+    p.path = null;                                       // forza la rilettura dell'indirizzo del video
+    this.messaggio(p, 'Nuovo tentativo…', true);
+    this.carica(p, path, start, stop);
   }
 
   // Rilegge il video con un altro indirizzo (lettura diretta da Google) e riparte dal punto richiesto
@@ -223,7 +267,7 @@ export class Video {
         else if (u.status === 404) causa = 'il video non è più condiviso: il link potrebbe essere scaduto o annullato.';
         else causa = `Google ha rifiutato la lettura del video (${u.status}${u.motivo ? ': ' + u.motivo : ''}).`;
         console.warn('Video non riproducibile:', src, causa);
-        if (p.video && p.video.getAttribute('src') === src) { const tx = (base ? base + ' ' : '') + 'Motivo: ' + causa; this.messaggio(p, tx); this.diagnostica(p, tx); }
+        if (p.video && p.video.getAttribute('src') === src) { const tx = (base ? base + ' ' : '') + 'Motivo: ' + causa; if (!p.riprovaAttiva) this.messaggio(p, tx); this.diagnostica(p, tx); }
         return;
       }
     } catch (e) {}
@@ -237,7 +281,7 @@ export class Video {
       else causa = `Drive risponde con errore ${r.status}.`;
     } catch (e) { causa = 'impossibile contattare il lettore dei video (' + ((e && e.message) || e) + '). ' + SUGGERIMENTO_RETE; }
     console.warn('Video non riproducibile:', src, causa);
-    if (p.video && p.video.getAttribute('src') === src) { const tx = (base ? base + ' ' : '') + 'Motivo: ' + causa; this.messaggio(p, tx); this.diagnostica(p, tx); }
+    if (p.video && p.video.getAttribute('src') === src) { const tx = (base ? base + ' ' : '') + 'Motivo: ' + causa; if (!p.riprovaAttiva) this.messaggio(p, tx); this.diagnostica(p, tx); }
   }
 
   // Punteggio in sovrimpressione (stile TV), in alto a sinistra sull'immagine del video
@@ -306,6 +350,7 @@ export class Video {
     if (p.preferisciDiretto && this.ctx.diretto) { const d = this.ctx.diretto(path, p.candidatoBuono != null ? p.candidatoBuono : (p.inizioProssima || 0)); if (d) ris = d; }
     p.candidato = ris.candidato != null ? ris.candidato : null;
     p.ultimoStart = start;
+    p.ultimoTempo = null;
     p.stop = stop != null ? stop : null;
     p.statoAtteso = null;
     this.mostra(p);

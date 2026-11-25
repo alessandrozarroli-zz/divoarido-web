@@ -20,6 +20,21 @@ export function tokenOspiteDaUrl(hash = (typeof location !== 'undefined' ? locat
   return m ? m[1] : null;
 }
 
+// VIDEO DELL'OSPITE SENZA IL LETTORE (service worker). Su Safari (iPad, iPhone, Mac) il lettore non riesce a chiedere a Google i pezzi di video
+// («FetchEvent.respondWith received an error: TypeError: Load failed») e negli altri browser puo' cadere dopo un po' («Failed to fetch»).
+// I video dell'ospite sono pubblici (solo per la durata del link): il <video> li legge direttamente da Google con la chiave API pubblica.
+// 25/11/2026. Se il file ha una «chiave di risorsa» (serve un'intestazione speciale) non e' possibile e resta il lettore.
+export function eWebKit(ua = (typeof navigator !== 'undefined' ? navigator.userAgent : ''), tocchi = (typeof navigator !== 'undefined' ? navigator.maxTouchPoints : 0)) {
+  ua = String(ua || '');
+  const ios = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && tocchi > 1);               // iPadOS si presenta come un Mac
+  const safari = /AppleWebKit/.test(ua) && /Safari/.test(ua) && !/Chrome|Chromium|Edg|Android|OPR/.test(ua);
+  return ios || safari;
+}
+export function urlVideoDiretto(api, id, dati) {
+  if (!dati || !dati.key || (dati.claves && dati.claves[id])) return null;
+  return `${String(api).replace(/\/$/, '')}/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&key=${encodeURIComponent(dati.key)}`;
+}
+
 // Messaggi comprensibili per chi ha un link che non funziona
 export function messaggioOspite(e) {
   const c = e && e.codice, m = String((e && e.message) || e || '');

@@ -58,12 +58,19 @@ export class Video {
       v.addEventListener('error', () => {
         const err = v.error;
         if (!v.getAttribute('src')) return;
+        // OSPITE: se il lettore dei video (service worker) non riesce, si prova UNA volta a leggere il video direttamente da Google
+        if (/__drive__\//.test(v.getAttribute('src') || '') && p.path && p.provatoDiretto !== p.path && this.ctx.diretto) {
+          const d = this.ctx.diretto(p.path);
+          if (d) { p.provatoDiretto = p.path; p.preferisciDiretto = true; this.riprova(p, d.url); return; }
+        }
         let t = 'Impossibile riprodurre il video';
         if (err && err.code === 4) t = 'Formato video non supportato dal browser (serve MP4 H.264 o WebM).';
         else if (err && err.code === 2) t = 'Errore di rete durante la lettura del video dal Drive.';
         this.messaggio(p, t);
         this.stato(p, 'Error');
-        this.diagnosi(p, v.getAttribute('src'), t);
+        const srcErr = v.getAttribute('src') || '';
+        if (/googleapis\.com\/.*alt=media/.test(srcErr)) this.messaggio(p, t + ' Motivo: Google non ha consegnato il video (limite di scarico raggiunto, link scaduto o connessione assente).');
+        else this.diagnosi(p, srcErr, t);
       });
       // Telefono/tablet: il quadratino di schermo intero dei comandi del video e' quello del browser (mostra solo il video, senza elenco clip
       // ne' comandi): lo si sostituisce con lo schermo intero del programma (scena unica con la linguetta delle clip). 24/11/2026.
@@ -94,6 +101,14 @@ export class Video {
     host.append(p.box);
   }
 
+  // Rilegge il video con un altro indirizzo (lettura diretta da Google) e riparte dal punto richiesto
+  riprova(p, url) {
+    const v = p.video, start = p.ultimoStart || 0;
+    this.messaggio(p, 'Caricamento del video…', true);
+    v.src = url;
+    v.addEventListener('loadedmetadata', () => { try { v.currentTime = start; } catch (e) {} const pr = v.play(); if (pr) pr.catch(() => {}); }, { once: true });
+  }
+
   // Quando un video non parte dice il PERCHÉ (altrimenti il programma passa alla clip dopo e sembra «tutto nero»):
   // si rilegge il primo byte dallo stesso indirizzo e si interpreta la risposta del componente di lettura (service worker).
   async diagnosi(p, src, base) {
@@ -104,6 +119,7 @@ export class Video {
       const u = await (await fetch(src.replace(/__drive__\/.*$/, '__drive__/_errore'))).json();
       if (u && Date.now() - u.quando < 180000) {
         if (/quota/i.test(u.motivo || '')) causa = 'Google ha raggiunto il limite di scarico di questo video (succede con i file molto grandi condivisi con un link). Riprova fra qualche ora oppure usa una copia più leggera del video.';
+        else if (u.status === 0) causa = 'la connessione con Google non è riuscita (' + (u.motivo || 'rete') + '). Controlla la connessione e riprova.';
         else if (u.status === 404) causa = 'il video non è più condiviso: il link potrebbe essere scaduto o annullato.';
         else causa = `Google ha rifiutato la lettura del video (${u.status}${u.motivo ? ': ' + u.motivo : ''}).`;
         console.warn('Video non riproducibile:', src, causa);
@@ -186,6 +202,9 @@ export class Video {
       this.stato(p, 'Error');
       return;
     }
+    // se per questo ospite il lettore dei video e' gia' fallito, si legge subito direttamente da Google
+    if (p.preferisciDiretto && this.ctx.diretto) { const d = this.ctx.diretto(path); if (d) ris = d; }
+    p.ultimoStart = start;
     p.stop = stop != null ? stop : null;
     p.statoAtteso = null;
     this.mostra(p);

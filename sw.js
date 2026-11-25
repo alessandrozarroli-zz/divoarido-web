@@ -104,7 +104,19 @@ async function streaming(req, id) {
   if (OSPITE) fine = Math.min(fine, inizio + PEZZO_OSPITE - 1);
   const url = conChiave(`${API}/files/${id}?alt=media&supportsAllDrives=true`);
   let t = await credenziali(false);
-  let r = await fetch(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(t, id)) });
+  const chiedi = (tok) => fetch(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(tok, id)) });
+  let r;
+  // una caduta di rete (anche momentanea) non deve far fallire la richiesta senza spiegazioni: si riprova una volta, poi si dice perche'
+  for (let k = 0; ; k++) {
+    try { r = await chiedi(t); break; }
+    catch (e) {
+      if (k >= 1) {
+        ULTIMO_ERRORE = { id, status: 0, motivo: String((e && e.message) || e), quando: Date.now() };
+        return new Response('Connessione con Google non riuscita', { status: 502 });
+      }
+      await new Promise((x) => setTimeout(x, 400));
+    }
+  }
   if ((r.status === 401 || r.status === 403) && !OSPITE) {
     t = await chiediToken(true);
     r = await fetch(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(t, id)) });

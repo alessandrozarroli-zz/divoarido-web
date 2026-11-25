@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer-when-downgrade">
+<title>Prova video</title>
+<style>
+  body { font: 15px/1.45 system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; margin: 12px; }
+  h2 { margin: 0 0 6px; } h3 { margin: 16px 0 4px; font-size: 16px; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #1e293b; padding: 8px 10px; border-radius: 6px; margin: 4px 0; font-size: 13px; }
+  .ok { color: #86efac; } .ko { color: #fca5a5; } .nota { color: #94a3b8; }
+  video { width: 100%; max-height: 140px; background: #000; margin-top: 4px; }
+</style>
+<script src="js/config.js"></script>
+</head>
+<body>
+<h2>Prova video (diagnosi)</h2>
+<p class="nota">Pagina di prova: confronta quattro modi di chiedere a Google lo stesso video. Aprila con lo stesso codice del link ospite (…/prova-video.html#o=CODICE),
+aspetta circa un minuto e manda una foto di TUTTO lo schermo (se serve, scorri in basso).</p>
+<pre id="intro">Preparo…</pre>
+<div id="out"></div>
+<script type="module">
+import { DriveOspite, tokenOspiteDaUrl } from './js/ospite.js';
+
+const CFG = window.VPS_CONFIG || {};
+const $ = (id) => document.getElementById(id);
+const out = $('out');
+const attesa = (ms) => new Promise((x) => setTimeout(x, ms));
+const riga = (cls, t) => { const p = document.createElement('pre'); if (cls) p.className = cls; p.textContent = t; out.lastElementChild ? out.append(p) : out.append(p); return p; };
+const titolo = (t) => { const h = document.createElement('h3'); h.textContent = t; out.append(h); };
+
+$('intro').textContent = 'Browser: ' + navigator.userAgent + '\nRete: ' + ((navigator.connection && (navigator.connection.effectiveType + ', ~' + navigator.connection.downlink + ' Mbit/s')) || 'n.d.') +
+  '\nLettore dei video (service worker): ' + (navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'attivo' : 'non attivo') : 'non supportato') + '\nOra: ' + new Date().toLocaleTimeString();
+
+// prova con l'elemento <video> (come fa la pagina vera): quanto ci mette ad avere i dati e con quale errore finisce
+function provaVideo(url, ms = 15000) {
+  return new Promise((ok) => {
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.controls = true;
+    out.append(v);
+    const t0 = performance.now();
+    let fine = false;
+    const chiudi = (esito) => { if (fine) return; fine = true; clearTimeout(timer); ok({ esito, ms: Math.round(performance.now() - t0), pronto: v.readyState, rete: v.networkState, w: v.videoWidth, h: v.videoHeight, dur: isFinite(v.duration) ? Math.round(v.duration) : null, err: v.error ? v.error.code + (v.error.message ? ' ' + v.error.message : '') : null, el: v }); };
+    const timer = setTimeout(() => chiudi('nessuna risposta in ' + ms / 1000 + ' s'), ms);
+    v.addEventListener('loadedmetadata', () => chiudi('metadati ricevuti'));
+    v.addEventListener('error', () => chiudi('errore'));
+    v.src = url;
+    v.load();
+  });
+}
+
+// prova con fetch (solo intestazioni): risposta e tempi
+async function provaFetch(url, ms = 8000) {
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms); const t0 = performance.now();
+  try {
+    const r = await fetch(url, { signal: ac.signal });
+    const dt = Math.round(performance.now() - t0);
+    let det = '';
+    if (!r.ok) { try { det = (await r.text()).slice(0, 200).replace(/\s+/g, ' '); } catch (e) {} }
+    else det = (r.headers.get('content-type') || '') + ' ' + (r.headers.get('content-length') || '') + ' ' + (r.headers.get('accept-ranges') || '');
+    try { ac.abort(); } catch (e) {}
+    return { ok: r.ok, testo: 'stato ' + r.status + ' in ' + dt + ' ms ' + det.trim() };
+  } catch (e) { return { ok: false, testo: 'nessuna risposta: ' + ((e && e.name) || '') + ' ' + ((e && e.message) || '') + ' dopo ' + Math.round(performance.now() - t0) + ' ms' }; }
+  finally { clearTimeout(t); }
+}
+
+(async () => {
+  const codice = tokenOspiteDaUrl();
+  if (!codice) { riga('ko', 'Manca il codice del link: apri …/prova-video.html#o=CODICE (lo stesso codice che c\'è alla fine del link ospite).'); return; }
+  let d;
+  try { d = new DriveOspite(CFG, codice); await d.apri(); } catch (e) { riga('ko', 'Il link non risponde: ' + ((e && e.message) || e)); return; }
+  const dati = d.datiVideoSW();
+  const api = String(d.api || 'https://www.googleapis.com/drive/v3').replace(/\/$/, '');
+  const gare = (d.info.gare || []).filter((g) => g.v);
+  riga('nota', 'Link valido. Partite con video: ' + gare.length + '. Chiave API presente: ' + (dati.key ? 'sì' : 'NO') + '. Chiavi di risorsa: ' + Object.keys(dati.claves || {}).length);
+  const g = gare[0];
+  if (!g) { riga('ko', 'Nessun video nel link.'); return; }
+  const id = g.v;
+  riga('nota', 'Video provato: ' + (g.r || g.n) + ' (' + (g.z ? Math.round(g.z / 1048576) + ' MB' : 'peso n.d.') + ')');
+  const k = encodeURIComponent(dati.key || '');
+  const varianti = [
+    ['A. Google API con chiave (come la pagina)', `${api}/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&key=${k}`],
+    ['B. drive.usercontent.google.com (download diretto)', `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t`],
+    ['C. drive.google.com/uc (download classico)', `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}&confirm=t`],
+    ['D. Google API con chiave, senza «supportsAllDrives»', `${api}/files/${encodeURIComponent(id)}?alt=media&key=${k}`],
+  ];
+  for (const [nome, url] of varianti) {
+    titolo(nome);
+    const rv = await provaVideo(url);
+    const buono = rv.esito === 'metadati ricevuti' && rv.w > 0;
+    riga(buono ? 'ok' : 'ko', 'Video: ' + rv.esito + ' in ' + rv.ms + ' ms · pronto ' + rv.pronto + ' · rete ' + rv.rete + ' · immagine ' + rv.w + 'x' + rv.h + ' · durata ' + rv.dur + ' s' + (rv.err ? ' · errore ' + rv.err : ''));
+    try { rv.el.pause(); rv.el.removeAttribute('src'); rv.el.load(); } catch (e) {}
+    rv.el.remove();
+    const rf = await provaFetch(url);
+    riga(rf.ok ? 'ok' : 'ko', 'Richiesta: ' + rf.testo);
+    await attesa(500);
+  }
+  titolo('Fine');
+  riga('nota', 'Test finito alle ' + new Date().toLocaleTimeString() + '. Manda la foto di tutto lo schermo.');
+})();
+</script>
+</body>
+</html>

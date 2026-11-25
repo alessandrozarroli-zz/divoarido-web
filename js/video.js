@@ -1,6 +1,9 @@
 // Player video: sostituisce VLC. Il programma chiede "carica questo file dal secondo X";
 // qui il file è un video del Drive, letto a pezzi (streaming) tramite il service worker.
 
+// Quando Google non risponde ai video, nella pratica e' la rete (filtri di sicurezza di una rete aziendale, scolastica o di un circolo)
+const SUGGERIMENTO_RETE = 'Il video non arriva: la rete su cui sei sembra bloccare o rallentare i video di Google. Prova con i dati mobili (o un\'altra rete) oppure chiedi a chi gestisce la rete di consentire www.googleapis.com, drive.usercontent.google.com e *.googleusercontent.com.';
+
 export class Video {
   constructor(ctx) {
     this.ctx = ctx;               // {elementoWidget(id), risolvi(path) -> {url, nome} | null, invia(azione)}
@@ -48,9 +51,11 @@ export class Video {
       v.preload = 'auto';
       const msg = document.createElement('div');
       msg.className = 'video-msg';
-      box.append(v, msg);
-      p.box = box; p.video = v; p.msg = msg;
-      v.addEventListener('playing', () => { this.messaggio(p, ''); this.stato(p, 'Playing'); });
+      const dg = document.createElement('div');       // riga di diagnosi FISSA: resta anche quando passa la clip dopo, finche' un video non parte davvero
+      dg.className = 'video-diag';
+      box.append(v, msg, dg);
+      p.box = box; p.video = v; p.msg = msg; p.diag = dg;
+      v.addEventListener('playing', () => { this.messaggio(p, ''); this.diagnostica(p, ''); this.stato(p, 'Playing'); });
       v.addEventListener('pause', () => { if (p.statoAtteso !== 'Stopped') this.stato(p, 'Paused'); });
       v.addEventListener('ended', () => this.stato(p, 'Ended'));
       v.addEventListener('waiting', () => this.messaggio(p, 'Caricamento…', true));
@@ -75,7 +80,9 @@ export class Video {
           this.sondaDiretta(srcErr).then((s) => {
             if (!p.video || p.video.getAttribute('src') !== srcErr) return;
             const ce = p.video.error;
-            this.messaggio(p, `${base}. Risposta di Google: ${s.stato || 'nessuna'}${s.det ? ' (' + s.det + ')' : ''}. Errore del video: ${ce ? ce.code + (ce.message ? ' ' + ce.message : '') : '-'}.`);
+            const tx = `${base}. Risposta di Google: ${s.stato || 'nessuna'}${s.det ? ' (' + s.det + ')' : ''}. Errore del video: ${ce ? ce.code + (ce.message ? ' ' + ce.message : '') : '-'}.`;
+            // nessuna risposta di Google = quasi sempre una rete con filtri di sicurezza che blocca o rallenta i video: lo si dice chiaro
+            this.messaggio(p, s.stato ? tx : SUGGERIMENTO_RETE); this.diagnostica(p, tx);
           });
         } else this.diagnosi(p, srcErr, t);
       });
@@ -106,6 +113,13 @@ export class Video {
     }
     host.classList.add('tk-video-host');
     host.append(p.box);
+  }
+
+  // Riga di diagnosi che non sparisce al cambio di clip (si toglie solo quando un video parte davvero)
+  diagnostica(p, t) {
+    if (!p.diag) return;
+    p.diag.textContent = t ? '[' + new Date().toLocaleTimeString() + '] ' + t : '';
+    p.diag.classList.toggle('vis', !!t);
   }
 
   // Chiede a Google, con lo stesso indirizzo del video, perche' non lo consegna (limite di scarico, chiave API, file non piu' condiviso...)
@@ -147,10 +161,12 @@ export class Video {
       if (richiesta !== p.richiesta) return;
       const fonte = /__drive__\//.test(src) ? 'lettore dei video' : (/googleapis\.com/.test(src) ? 'Google diretto' : 'altro');
       const dur = isFinite(v.duration) ? Math.round(v.duration) : '?';
-      const testo = `Il video non parte. Fonte: ${fonte}. Rete: ${v.networkState}, pronto: ${v.readyState}, immagine: ${v.videoWidth}x${v.videoHeight}, tempo: ${v.currentTime.toFixed(1)}/${dur}, risposta del server: ${sonda}`;
+      const lettore = navigator.serviceWorker ? (navigator.serviceWorker.controller ? 'attivo' : 'NON attivo') : 'non supportato';
+      const testo = `Il video non parte. Fonte: ${fonte}. Lettore dei video: ${lettore}. Rete: ${v.networkState}, pronto: ${v.readyState}, immagine: ${v.videoWidth}x${v.videoHeight}, tempo: ${v.currentTime.toFixed(1)}/${dur}, risposta del server: ${sonda}`;
       console.warn(testo);
-      this.messaggio(p, testo);
-    }, 5000);
+      this.diagnostica(p, testo);
+      if (/AbortError|Failed to fetch|Load failed|nessuna/.test(sonda)) this.messaggio(p, SUGGERIMENTO_RETE);
+    }, 3500);
   }
 
   // Rilegge il video con un altro indirizzo (lettura diretta da Google) e riparte dal punto richiesto
@@ -171,11 +187,11 @@ export class Video {
       const u = await (await fetch(src.replace(/__drive__\/.*$/, '__drive__/_errore'))).json();
       if (u && Date.now() - u.quando < 180000) {
         if (/quota/i.test(u.motivo || '')) causa = 'Google ha raggiunto il limite di scarico di questo video (succede con i file molto grandi condivisi con un link). Riprova fra qualche ora oppure usa una copia più leggera del video.';
-        else if (u.status === 0) causa = 'la connessione con Google non è riuscita (' + (u.motivo || 'rete') + '). Controlla la connessione e riprova.';
+        else if (u.status === 0) causa = 'la connessione con Google non è riuscita (' + (u.motivo || 'rete') + '). ' + SUGGERIMENTO_RETE;
         else if (u.status === 404) causa = 'il video non è più condiviso: il link potrebbe essere scaduto o annullato.';
         else causa = `Google ha rifiutato la lettura del video (${u.status}${u.motivo ? ': ' + u.motivo : ''}).`;
         console.warn('Video non riproducibile:', src, causa);
-        if (p.video && p.video.getAttribute('src') === src) this.messaggio(p, (base ? base + ' ' : '') + 'Motivo: ' + causa);
+        if (p.video && p.video.getAttribute('src') === src) { const tx = (base ? base + ' ' : '') + 'Motivo: ' + causa; this.messaggio(p, tx); this.diagnostica(p, tx); }
         return;
       }
     } catch (e) {}
@@ -187,9 +203,9 @@ export class Video {
       else if (r.status === 404) causa = 'il lettore dei video non è attivo su questa pagina (succede dopo Ctrl+F5, che lo esclude): ricarica con un normale F5, oppure chiudi la scheda e riaprila.';
       else if (r.status === 401 || r.status === 403) causa = `Drive rifiuta l'accesso (${r.status}): premi «Rinnova accesso Google» in alto e riprova.`;
       else causa = `Drive risponde con errore ${r.status}.`;
-    } catch (e) { causa = 'impossibile contattare il lettore dei video (' + ((e && e.message) || e) + ').'; }
+    } catch (e) { causa = 'impossibile contattare il lettore dei video (' + ((e && e.message) || e) + '). ' + SUGGERIMENTO_RETE; }
     console.warn('Video non riproducibile:', src, causa);
-    if (p.video && p.video.getAttribute('src') === src) this.messaggio(p, (base ? base + ' ' : '') + 'Motivo: ' + causa);
+    if (p.video && p.video.getAttribute('src') === src) { const tx = (base ? base + ' ' : '') + 'Motivo: ' + causa; this.messaggio(p, tx); this.diagnostica(p, tx); }
   }
 
   // Punteggio in sovrimpressione (stile TV), in alto a sinistra sull'immagine del video

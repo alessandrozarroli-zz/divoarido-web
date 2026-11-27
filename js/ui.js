@@ -200,14 +200,20 @@ function adattaElencoClip(f) {
   f.box.classList.add('tk-elenco');
   const xs = f.barra.querySelector('.tk-x'); if (xs) xs.title = 'Esci dallo schermo intero';
   const az = f.barra.querySelector('.tk-azioni');
-  const bT = document.createElement('button'); bT.className = 'tk-trasp-b'; bT.title = 'Vista trasparente / normale'; bT.textContent = '◌';
+  const bT = document.createElement('button'); bT.className = 'tk-trasp-b'; bT.title = 'Vista standard / trasparente'; bT.textContent = '◌ Trasparente';
   const bR = document.createElement('button'); bR.className = 'tk-riduci'; bR.title = 'Riduci a icona (tasto L)'; bR.textContent = '▁';
   az.prepend(bT, bR);
   let trasp = false;
   try { trasp = localStorage.getItem('vps_elenco_trasp') === '1'; } catch (e) {}
-  const applica = () => { f.box.classList.toggle('tk-trasp', trasp); bT.textContent = trasp ? '◉' : '◌'; };
+  // due aspetti, come nell'exe: STANDARD (pieno) e TRASPARENTE (chiaro sopra il video, torna pieno col mouse o col dito sopra). Il pulsante dice dove si va. 27/11/2026.
+  const applica = () => { f.box.classList.toggle('tk-trasp', trasp); bT.textContent = trasp ? '◉ Standard' : '◌ Trasparente'; bT.title = trasp ? 'Torna alla vista standard' : 'Vista trasparente: quasi invisibile sopra il video, si riempie toccandola'; };
   applica();
-  bT.onclick = () => { trasp = !trasp; try { localStorage.setItem('vps_elenco_trasp', trasp ? '1' : '0'); } catch (e) {} applica(); };
+  // in vista trasparente la finestra torna piena per 3 secondi dopo un tocco o un tasto al suo interno (poi riscompare da sola)
+  let tmSveglia = null;
+  const sveglia = () => { f.box.classList.add('tk-sveglia'); clearTimeout(tmSveglia); tmSveglia = setTimeout(() => f.box.classList.remove('tk-sveglia'), 3000); };
+  f.box.addEventListener('pointerdown', sveglia, true);
+  f.box.addEventListener('keydown', sveglia, true);
+  bT.onclick = () => { trasp = !trasp; try { localStorage.setItem('vps_elenco_trasp', trasp ? '1' : '0'); } catch (e) {} applica(); try { bT.blur(); } catch (e) {} };
   const ic = document.createElement('button'); ic.id = 'elenco-icona'; ic.hidden = true; ic.textContent = '☰'; ic.title = "Riapri l'elenco delle clip (tasto L)";
   document.body.append(ic);
   f.icona = ic;

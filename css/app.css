@@ -41,11 +41,16 @@ button { font: inherit; }
 #barra-sup .spazio { flex: 1; }
 #utente { color: var(--tenue); }
 /* Elenco clip a schermo intero: vista trasparente e riduzione a icona */
+/* Trasparente: torna piena col mouse sopra, o per 3 secondi dopo un tocco/tasto dentro la finestra (con il dito non esiste «mouse sopra»);
+   prima restava piena anche dopo aver premuto il pulsante, perche' il fuoco restava dentro la finestra. 27/11/2026 */
 .tk-finestra.tk-trasp { opacity: .38; transition: opacity .15s; }
-.tk-finestra.tk-trasp:hover, .tk-finestra.tk-trasp:focus-within { opacity: 1; }
+.tk-finestra.tk-trasp:hover, .tk-finestra.tk-trasp.tk-sveglia { opacity: 1; }
 .tk-finestra.tk-ridotta { display: none; }
 .tk-azioni .tk-trasp-b, .tk-azioni .tk-riduci { background: transparent; border: 0; color: #cbd5e1; cursor: pointer; font-size: 14px; border-radius: 4px; width: 28px; height: 26px; }
 .tk-azioni .tk-trasp-b:hover, .tk-azioni .tk-riduci:hover { background: #334155; }
+/* «◌ Trasparente» / «◉ Standard»: pulsante con la scritta (prima era un'icona piccola e non si notava) */
+.tk-azioni .tk-trasp-b { width: auto; height: 22px; line-height: 18px; margin-right: 4px; padding: 0 9px; font-size: 12px; font-weight: bold; white-space: nowrap; background: #334155; border: 1px solid #64748b; color: #f1f5f9; }
+.tk-azioni .tk-trasp-b:hover { background: #475569; }
 #elenco-icona { position: fixed; left: 10px; top: 90px; z-index: 30000; width: 42px; height: 42px; border-radius: 50%; border: 2px solid #c4b5fd; background: rgba(139,92,246,.85); color: #fff; font-size: 20px; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
 #elenco-icona:hover { background: #8b5cf6; }
 #profilo-ind { color: #fbbf24; font-weight: bold; }
@@ -140,7 +145,10 @@ button { font: inherit; }
 .scena-intera #barra-sup { display: none; }
 .tocco .tk-finestra.tk-elenco { position: fixed; top: 0 !important; right: 0 !important; bottom: 0 !important; left: auto !important; width: min(420px, 62vw) !important; height: auto !important; max-width: none; border-radius: 0; resize: none; border-width: 0 0 0 1px; z-index: 9600 !important; }
 .tocco .tk-finestra.tk-elenco > .tk-barra { cursor: default; }
-.tocco .tk-elenco .tk-trasp-b, .tocco .tk-elenco .tk-riduci { width: 40px; height: 30px; font-size: 16px; }
+.tocco .tk-elenco .tk-riduci { width: 40px; height: 30px; font-size: 16px; }
+/* telefono/tablet: i pulsanti colorati delle flag (senza testo) sono almeno 40 px: si toccano bene col dito */
+.tocco .tk-bottone:empty { min-height: 40px; min-width: 46px; }
+.tocco .tk-elenco .tk-trasp-b { width: auto; height: 34px; font-size: 13px; padding: 0 12px; }
 .tocco #elenco-icona { left: auto; right: 0; top: 50%; transform: translateY(-50%); width: 38px; height: 78px; border-radius: 14px 0 0 14px; border-width: 2px 0 2px 2px; opacity: .85; }
 /* in verticale il cassetto sale dal basso (il video resta visibile sopra) */
 @media (orientation: portrait) { .tocco .tk-finestra.tk-elenco { top: auto !important; left: 0 !important; width: 100% !important; height: 58vh !important; border-width: 1px 0 0 0; } }

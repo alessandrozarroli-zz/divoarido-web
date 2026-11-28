@@ -19,6 +19,7 @@ let TIMEOUT_PEZZO = 12000;
 // Seconda strada per i video dell'ospite: download diretto di Google, senza chiave API (usata se la lettura con la chiave viene rifiutata).
 let UC = 'https://drive.usercontent.google.com';
 let UC_PREFERITA_FINO = 0;    // fino a quest'ora (ms) si prova per prima la seconda strada
+let HEDGE_MS = 2500;          // dopo quanto tempo senza risposta parte anche l'altra strada (in parallelo)
 
 function fetchConTempo(url, opz, ms, esterno) {
   const ac = new AbortController();
@@ -35,6 +36,7 @@ function impostaOspite(d) {
   if (d && d.pezzo > 0) PEZZO_OSPITE = d.pezzo;
   if (d && d.timeout > 0) TIMEOUT_PEZZO = d.timeout;
   if (d && d.uc) UC = String(d.uc).replace(/\/$/, '');
+  if (d && d.hedge > 0) HEDGE_MS = d.hedge;
   if (d && d.preferisciUC === false) UC_PREFERITA_FINO = 0;
   if (!OSPITE) META.clear();
 }
@@ -137,7 +139,7 @@ async function streaming(req, id) {
   if (OSPITE) fine = Math.min(fine, inizio + PEZZO_OSPITE - 1);
   const url = conChiave(`${API}/files/${id}?alt=media&supportsAllDrives=true`);
   let t = await credenziali(false);
-  const chiedi = (tok) => fetchConTempo(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(tok, id)) }, TIMEOUT_PEZZO, req.signal);
+  const chiedi = (tok, sig) => fetchConTempo(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(tok, id)) }, TIMEOUT_PEZZO, sig || req.signal);
   let r = null;
   if (OSPITE) {
     // DUE STRADE verso Google (28/11/2026): a volte Google rifiuta la lettura con la chiave API (403 con una pagina «Sorry…» senza intestazioni CORS: il browser
@@ -145,28 +147,54 @@ async function streaming(req, id) {
     // per ultima; se cade, subito l'altra; poi un ultimo tentativo sulla prima. Se una strada ha funzionato dopo il rifiuto dell'altra, la si preferisce per 10 minuti.
     const rk = OSPITE.claves && OSPITE.claves[id];
     const urlUC = `${UC}/download?id=${encodeURIComponent(id)}&export=download&confirm=t` + (rk ? '&resourcekey=' + encodeURIComponent(rk) : '');
-    const chiediUC = () => fetchConTempo(urlUC, { headers: { Range: `bytes=${inizio}-${fine}` } }, TIMEOUT_PEZZO, req.signal);
+    const chiediUC = (sig) => fetchConTempo(urlUC, { headers: { Range: `bytes=${inizio}-${fine}` } }, TIMEOUT_PEZZO, sig || req.signal);
     const prima = Date.now() < UC_PREFERITA_FINO ? 1 : 0;
-    const sequenza = [prima, 1 - prima, prima];
     const errori = {};
+    // Un giro: parte la strada preferita; se non ha risposto con successo entro HEDGE_MS (o e' caduta prima) parte anche l'altra, in parallelo; vince la prima
+    // che consegna il video e l'altra viene interrotta. Cosi' non si aspettano i 6-10 s con cui Google rifiuta la chiave: la pagina abbandona un video fermo
+    // dopo ~5 s e la seconda strada non avrebbe mai il tempo di essere provata (foto dell'iPad, 28/11/2026 16:58).
+    const giro = () => new Promise((fineGiro) => {
+      const ctl = [new AbortController(), new AbortController()];
+      const daFuori = () => { ctl[0].abort(); ctl[1].abort(); };
+      if (req.signal) { if (req.signal.aborted) daFuori(); else req.signal.addEventListener('abort', daFuori, { once: true }); }
+      let attivi = 0, risolto = false, avviata = [false, false], timer = null;
+      const concludi = (res) => { if (risolto) return; risolto = true; clearTimeout(timer); fineGiro(res); };
+      const avvia = (s) => {
+        if (avviata[s] || risolto) return;
+        avviata[s] = true; attivi++;
+        (async () => {
+          const x = await (s === 0 ? chiedi(t, ctl[0].signal) : chiediUC(ctl[1].signal));
+          const html = /text\/html/i.test(x.headers.get('content-type') || '');
+          if (x.ok && !html) return x;
+          let motivo = '';
+          if (!html) { try { const j = JSON.parse(await x.text()); motivo = (j.error && j.error.message) || ''; } catch (e) {} }
+          else motivo = 'Google ha risposto con una pagina di rifiuto';
+          errori[s] = { id, status: x.status, motivo, quando: Date.now() };
+          return null;
+        })().catch((e) => { if (!(req.signal && req.signal.aborted)) errori[s] = { id, status: 0, motivo: String((e && e.message) || e), quando: Date.now() }; return null; })
+          .then((x) => {
+            attivi--;
+            if (risolto) return;
+            if (x) { ctl[1 - s].abort(); UC_PREFERITA_FINO = s === 1 ? Date.now() + 10 * 60000 : 0; concludi(x); return; }
+            if (req.signal && req.signal.aborted) return concludi(null);
+            if (!avviata[1 - s]) avvia(1 - s);                       // la prima e' caduta: subito l'altra
+            else if (attivi === 0) concludi(null);
+          });
+      };
+      avvia(prima);
+      timer = setTimeout(() => {
+        if (risolto) return;
+        if (prima === 0) UC_PREFERITA_FINO = Date.now() + 10 * 60000;    // la chiave e' lenta: per i prossimi pezzi si parte dalla strada diretta
+        avvia(1 - prima);
+      }, HEDGE_MS);
+    });
     const t0 = Date.now();
-    for (let k = 0; k < sequenza.length && !r; k++) {
+    for (let k = 0; k < 2 && !r; k++) {
       if (req.signal && req.signal.aborted) return new Response(null, { status: 499 });
-      if (k === 2) { if (Date.now() - t0 > 15000) break; await new Promise((x) => setTimeout(x, 400)); }
-      const s = sequenza[k];
-      try {
-        const x = await (s === 0 ? chiedi(t) : chiediUC());
-        const html = /text\/html/i.test(x.headers.get('content-type') || '');
-        if (x.ok && !html) { r = x; UC_PREFERITA_FINO = s === 1 ? Date.now() + 10 * 60000 : 0; break; }
-        let motivo = '';
-        if (!html) { try { const j = JSON.parse(await x.text()); motivo = (j.error && j.error.message) || ''; } catch (e) {} }
-        else motivo = 'Google ha risposto con una pagina di rifiuto';
-        errori[s] = { id, status: x.status, motivo, quando: Date.now() };
-      } catch (e) {
-        if (req.signal && req.signal.aborted) return new Response(null, { status: 499 });
-        errori[s] = { id, status: 0, motivo: String((e && e.message) || e), quando: Date.now() };
-      }
+      if (k === 1) { if (Date.now() - t0 > 15000) break; await new Promise((x) => setTimeout(x, 400)); }
+      r = await giro();
     }
+    if (req.signal && req.signal.aborted && !r) return new Response(null, { status: 499 });
     if (!r) {
       const e = errori[0] || errori[1];
       ULTIMO_ERRORE = e;

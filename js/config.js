@@ -46,6 +46,10 @@ window.VPS_CONFIG = {
   // Vuoto = link per ospiti NON attivi (nessun pulsante «Link ospiti», e i link gia' dati non funzionano).
   OSPITI_URL: 'https://script.google.com/macros/s/AKfycbw0iMYHN_Z64ZeMsEJ4RO2i-hLc1zzfKN0yQL2Q4llDu_kpQ8dNThWxu0NUrQq7Rxnd5Q/exec',
 
+  // Indirizzo pubblico della pagina: i link per ospiti usano sempre questo, anche se il proprietario sta provando la pagina in locale
+  // (http://localhost:8000 e' raggiungibile solo da questo PC).
+  URL_PUBBLICO: 'https://alessandrozarroli-zz.github.io/divoarido-web/',
+
   // PROFILI D'USO (completo / reader / personalizzati, vedi js/profili.js). MARCATORE_COMPLETO = ID della cartella «Funzioni complete»
   // (la vede solo chi ha il profilo completo; vuoto = profili NON attivi, tutti vedono tutto come prima). CARTELLA_PROFILI = ID della
   // cartella del proprietario in cui la pagina «Gestione profili» crea le cartelle-marcatore dei profili personalizzati.
@@ -59,5 +63,5 @@ window.VPS_CONFIG = {
   // Non modificare (versioni dei componenti)
   PYODIDE_URL: 'https://cdn.jsdelivr.net/pyodide/v0.28.2/full/',
   REPORTLAB_WHEEL: 'reportlab-5.0.1-py3-none-any.whl',
-  VERSIONE: '20261128-0932',
+  VERSIONE: '20261128-1638',
 };

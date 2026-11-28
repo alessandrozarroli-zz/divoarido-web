@@ -17,7 +17,16 @@ export function formatoDimensione(byte) {
   if (!byte) return '0 MB';
   return byte >= 1073741824 ? (byte / 1073741824).toFixed(1) + ' GB' : Math.round(byte / 1048576) + ' MB';
 }
-export function indirizzoLink(token, base = location.origin + location.pathname) { return base + '#o=' + token; }
+// Pagina aperta solo su questo PC (localhost, 127.0.0.1, indirizzi di rete locale): un link con quell'indirizzo non si aprirebbe altrove.
+export function indirizzoLocale(host) { return /^(localhost|127\.|\[?::1\]?$|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|.*\.local$)/i.test(host || ''); }
+let urlPubblico = '';
+export function indirizzoLink(token, base) {
+  if (!base) {
+    const pub = urlPubblico || (typeof window !== 'undefined' && window.VPS_CONFIG && window.VPS_CONFIG.URL_PUBBLICO) || '';
+    base = (pub && indirizzoLocale(location.hostname)) ? pub : location.origin + location.pathname;
+  }
+  return base + '#o=' + token;
+}
 
 // Elenco delle gare da mandare al servizio, secondo le scelte: [{n,d,s,v,r,m,z}]
 export function sceltaElementi(tutti, { gare, allenamenti, video }) {
@@ -44,6 +53,7 @@ export function descrizioneStato(l) {
 // profili: [{id, nome, funzioni}]  (il primo e' il Reader)
 export function apriLinkOspiti({ drive, CFG, elementi, profili, messaggio }) {
   document.getElementById('lo-fondo')?.remove();
+  urlPubblico = (CFG && CFG.URL_PUBBLICO) || '';
   const tutti = elementi();
   const fondo = el('div', 'dlg-fondo dlg-aperto'); fondo.id = 'lo-fondo';
   const dlg = el('div', 'dlg gp-dlg lo-dlg'); dlg.setAttribute('role', 'dialog');

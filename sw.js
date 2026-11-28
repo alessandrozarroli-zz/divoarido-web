@@ -16,6 +16,9 @@ let ULTIMO_ERRORE = null;     // ultimo rifiuto di Google (per spiegare all'uten
 // il video restava appeso per sempre. E se il browser annulla la richiesta (salto a un'altra clip) si interrompe subito anche quella a Google,
 // invece di lasciarla scaricare 8 MB che nessuno guarda e che intasano la rete. 25/11/2026.
 let TIMEOUT_PEZZO = 12000;
+// Seconda strada per i video dell'ospite: download diretto di Google, senza chiave API (usata se la lettura con la chiave viene rifiutata).
+let UC = 'https://drive.usercontent.google.com';
+let UC_PREFERITA_FINO = 0;    // fino a quest'ora (ms) si prova per prima la seconda strada
 
 function fetchConTempo(url, opz, ms, esterno) {
   const ac = new AbortController();
@@ -31,6 +34,8 @@ function impostaOspite(d) {
   OSPITE = d && d.key ? { key: d.key, claves: d.claves || {} } : null;
   if (d && d.pezzo > 0) PEZZO_OSPITE = d.pezzo;
   if (d && d.timeout > 0) TIMEOUT_PEZZO = d.timeout;
+  if (d && d.uc) UC = String(d.uc).replace(/\/$/, '');
+  if (d && d.preferisciUC === false) UC_PREFERITA_FINO = 0;
   if (!OSPITE) META.clear();
 }
 
@@ -133,9 +138,44 @@ async function streaming(req, id) {
   const url = conChiave(`${API}/files/${id}?alt=media&supportsAllDrives=true`);
   let t = await credenziali(false);
   const chiedi = (tok) => fetchConTempo(url, { headers: Object.assign({ Range: `bytes=${inizio}-${fine}` }, intestazioni(tok, id)) }, TIMEOUT_PEZZO, req.signal);
-  let r;
+  let r = null;
+  if (OSPITE) {
+    // DUE STRADE verso Google (28/11/2026): a volte Google rifiuta la lettura con la chiave API (403 con una pagina «Sorry…» senza intestazioni CORS: il browser
+    // la vede solo come «Load failed»/«Failed to fetch») mentre il download diretto (drive.usercontent.google.com) risponde. Si prova la strada che ha funzionato
+    // per ultima; se cade, subito l'altra; poi un ultimo tentativo sulla prima. Se una strada ha funzionato dopo il rifiuto dell'altra, la si preferisce per 10 minuti.
+    const rk = OSPITE.claves && OSPITE.claves[id];
+    const urlUC = `${UC}/download?id=${encodeURIComponent(id)}&export=download&confirm=t` + (rk ? '&resourcekey=' + encodeURIComponent(rk) : '');
+    const chiediUC = () => fetchConTempo(urlUC, { headers: { Range: `bytes=${inizio}-${fine}` } }, TIMEOUT_PEZZO, req.signal);
+    const prima = Date.now() < UC_PREFERITA_FINO ? 1 : 0;
+    const sequenza = [prima, 1 - prima, prima];
+    const errori = {};
+    const t0 = Date.now();
+    for (let k = 0; k < sequenza.length && !r; k++) {
+      if (req.signal && req.signal.aborted) return new Response(null, { status: 499 });
+      if (k === 2) { if (Date.now() - t0 > 15000) break; await new Promise((x) => setTimeout(x, 400)); }
+      const s = sequenza[k];
+      try {
+        const x = await (s === 0 ? chiedi(t) : chiediUC());
+        const html = /text\/html/i.test(x.headers.get('content-type') || '');
+        if (x.ok && !html) { r = x; UC_PREFERITA_FINO = s === 1 ? Date.now() + 10 * 60000 : 0; break; }
+        let motivo = '';
+        if (!html) { try { const j = JSON.parse(await x.text()); motivo = (j.error && j.error.message) || ''; } catch (e) {} }
+        else motivo = 'Google ha risposto con una pagina di rifiuto';
+        errori[s] = { id, status: x.status, motivo, quando: Date.now() };
+      } catch (e) {
+        if (req.signal && req.signal.aborted) return new Response(null, { status: 499 });
+        errori[s] = { id, status: 0, motivo: String((e && e.message) || e), quando: Date.now() };
+      }
+    }
+    if (!r) {
+      const e = errori[0] || errori[1];
+      ULTIMO_ERRORE = e;
+      if (e.status === 0) return new Response('Connessione con Google non riuscita', { status: 502 });
+      return new Response('Errore Drive ' + e.status + (e.motivo ? ': ' + e.motivo : ''), { status: e.status });
+    }
+  }
   // una caduta di rete (anche momentanea) non deve far fallire la richiesta senza spiegazioni: si riprova una volta, poi si dice perche'
-  for (let k = 0; ; k++) {
+  for (let k = 0; !r; k++) {
     try { r = await chiedi(t); break; }
     catch (e) {
       if (req.signal && req.signal.aborted) return new Response(null, { status: 499 });     // annullata dal browser (salto a un'altra clip): niente nuovi tentativi

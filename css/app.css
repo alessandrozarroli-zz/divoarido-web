@@ -43,8 +43,15 @@ button { font: inherit; }
 /* Elenco clip a schermo intero: vista trasparente e riduzione a icona */
 /* Trasparente: torna piena col mouse sopra, o per 3 secondi dopo un tocco/tasto dentro la finestra (con il dito non esiste «mouse sopra»);
    prima restava piena anche dopo aver premuto il pulsante, perche' il fuoco restava dentro la finestra. 27/11/2026 */
-.tk-finestra.tk-trasp { opacity: .38; transition: opacity .15s; }
-.tk-finestra.tk-trasp:hover, .tk-finestra.tk-trasp.tk-sveglia { opacity: 1; }
+/* 28/11/2026: prima la finestra diventava solo piu' chiara e tornava PIENA col mouse sopra (cioe' sempre, subito dopo aver premuto il pulsante): non si vedeva
+   nessuna differenza. Ora, come nell'exe, la vista trasparente non ha il pannello pieno: restano le scritte contornate sopra il video e i tasti colorati;
+   col mouse sopra (o dopo un tocco) compare solo un velo scuro leggero per leggere meglio. */
+.tk-finestra.tk-trasp { background: transparent !important; box-shadow: none; border-color: rgba(148,163,184,.4); text-shadow: 0 0 2px #000, 0 0 3px #000, 0 1px 3px #000; transition: background-color .15s; }
+.tk-finestra.tk-trasp .tk-barra { background: rgba(15,23,42,.35); border-bottom-color: rgba(148,163,184,.25); }
+.tk-finestra.tk-trasp .tk-corpo, .tk-finestra.tk-trasp .tk-corpo div, .tk-finestra.tk-trasp .tk-tree, .tk-finestra.tk-trasp .tk-tabella th,
+.tk-finestra.tk-trasp .tk-tabella tr:not(.sel) td { background: transparent !important; }
+.tk-finestra.tk-trasp .tk-bottone, .tk-finestra.tk-trasp .tk-trasp-b { text-shadow: none; }
+.tk-finestra.tk-trasp:hover, .tk-finestra.tk-trasp.tk-sveglia { background: rgba(2,6,23,.5) !important; }
 .tk-finestra.tk-ridotta { display: none; }
 .tk-azioni .tk-trasp-b, .tk-azioni .tk-riduci { background: transparent; border: 0; color: #cbd5e1; cursor: pointer; font-size: 14px; border-radius: 4px; width: 28px; height: 26px; }
 .tk-azioni .tk-trasp-b:hover, .tk-azioni .tk-riduci:hover { background: #334155; }
